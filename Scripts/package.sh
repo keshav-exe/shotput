@@ -17,7 +17,7 @@ ZIP="build/Shotput-$VERSION.zip"
 DMG="build/Shotput-$VERSION.dmg"
 rm -f "$ZIP" "$DMG" build/checksums.txt
 
-SIGNER="$(codesign -dvv "$APP" 2>&1 | awk -F= '/^Authority/ { print $2; exit }')"
+SIGNER="$(codesign -dvv "$APP" 2>&1 | awk -F= '/^Authority/ { print $2; exit }' || true)"
 if [ -n "${NOTARY_PROFILE:-}" ]; then
     NOTARY_AUTH=(--keychain-profile "$NOTARY_PROFILE")
 elif [ -n "${NOTARY_APPLE_ID:-}" ] && [ -n "${NOTARY_TEAM_ID:-}" ] && [ -n "${NOTARY_PASSWORD:-}" ]; then

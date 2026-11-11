@@ -10,6 +10,7 @@ final class Capture: @unchecked Sendable {
     let screenRect: CGRect?
     let screen: NSScreen?
     let date = Date()
+    let id = UUID()
     /// The app that was in front when the capture was taken, for the file name template.
     var appName: String?
     /// Set when the capture was put on a backdrop as it was taken. The editor starts from it,

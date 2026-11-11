@@ -40,12 +40,12 @@ public enum Tool: Int, CaseIterable {
 }
 
 public enum Weight: Int, CaseIterable {
-    case light, regular, heavy
+    case light, regular, heavy, extraHeavy
 
-    var stroke: CGFloat { [2.5, 4, 6.5][rawValue] }
-    var fontSize: CGFloat { [14, 19, 28][rawValue] }
-    var counterRadius: CGFloat { [11, 14, 19][rawValue] }
-    var name: String { ["Thin", "Regular", "Bold"][rawValue] }
+    var stroke: CGFloat { [2.5, 4, 6.5, 10][rawValue] }
+    var fontSize: CGFloat { [14, 19, 28, 40][rawValue] }
+    var counterRadius: CGFloat { [11, 14, 19, 26][rawValue] }
+    var name: String { ["Thin", "Regular", "Bold", "Extra bold"][rawValue] }
 }
 
 /// One mark on the screenshot. Coordinates are image points with a top-left origin.
@@ -68,13 +68,19 @@ public struct Annotation: Identifiable, Equatable {
     public var weight: Weight
     /// Shapes: tinted interior. Text: label pill. Redact: solid block instead of pixels.
     public var filled: Bool
+    /// Lines and arrows: the control point of a quadratic curve. Nil keeps them straight.
+    public var bend: CGPoint?
 
-    public init(id: UUID = UUID(), kind: Kind, color: InkColor = .red, weight: Weight = .regular, filled: Bool = false) {
+    public init(
+        id: UUID = UUID(), kind: Kind, color: InkColor = .red, weight: Weight = .regular, filled: Bool = false,
+        bend: CGPoint? = nil
+    ) {
         self.id = id
         self.kind = kind
         self.color = color
         self.weight = weight
         self.filled = filled
+        self.bend = bend
     }
 }
 
@@ -118,11 +124,36 @@ extension Annotation {
         }
     }
 
+    /// Points along a line or arrow, curved or straight. Nil for other kinds.
+    func pathPoints(samples: Int = 24) -> [CGPoint]? {
+        guard let ends = endpoints else { return nil }
+        guard let c = bend else { return [ends.from, ends.to] }
+        return (0 ... samples).map { quadPoint(ends.from, c, ends.to, CGFloat($0) / CGFloat(samples)) }
+    }
+
+    /// The point halfway along the curve, where its bend handle sits.
+    var bendHandle: CGPoint? {
+        guard let ends = endpoints else { return nil }
+        guard let c = bend else { return (ends.from + ends.to) * 0.5 }
+        return quadPoint(ends.from, c, ends.to, 0.5)
+    }
+
+    /// Bends the curve so it passes through `handle` halfway along. Close to straight, it snaps straight.
+    func bent(through handle: CGPoint) -> Annotation {
+        guard let ends = endpoints else { return self }
+        var copy = self
+        let mid = (ends.from + ends.to) * 0.5
+        copy.bend = handle.distance(to: mid) < 4 ? nil : handle * 2 - mid
+        return copy
+    }
+
     /// Geometric bounds, ignoring stroke width.
     var frame: CGRect {
         switch kind {
-        case let .arrow(a, b), let .line(a, b):
-            return CGRect(from: a, to: b)
+        case .arrow, .line:
+            let points = pathPoints() ?? []
+            guard let first = points.first else { return .zero }
+            return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { $0.union(CGRect(origin: $1, size: .zero)) }
         case let .rectangle(r), let .ellipse(r), let .highlight(r), let .redact(r):
             return r
         case let .text(origin, string):
@@ -167,6 +198,10 @@ extension Annotation {
 
     func withEndpoints(from: CGPoint, to: CGPoint) -> Annotation {
         var copy = self
+        // Dragging an end carries the curve along, so the bend keeps its character.
+        if let bend, let ends = endpoints {
+            copy.bend = bend + ((from - ends.from) + (to - ends.to)) * 0.5
+        }
         switch kind {
         case .arrow: copy.kind = .arrow(from: from, to: to)
         case .line: copy.kind = .line(from: from, to: to)
@@ -188,6 +223,7 @@ extension Annotation {
         case let .counter(center, number): copy.kind = .counter(center: center + d, number: number)
         case let .pen(points): copy.kind = .pen(points.map { $0 + d })
         }
+        copy.bend = bend.map { $0 + d }
         return copy
     }
 
@@ -212,11 +248,11 @@ extension Annotation {
     func hitTest(_ p: CGPoint, tolerance: CGFloat) -> Bool {
         let reach = max(weight.stroke / 2, tolerance)
         switch kind {
-        case let .arrow(a, b):
+        case .arrow, .line:
             // The head is wider than the shaft, so give arrows a little more reach.
-            return p.distance(toSegment: a, b) <= reach + weight.stroke
-        case let .line(a, b):
-            return p.distance(toSegment: a, b) <= reach
+            let extra = tool == .arrow ? weight.stroke : 0
+            let points = pathPoints() ?? []
+            return zip(points, points.dropFirst()).contains { p.distance(toSegment: $0, $1) <= reach + extra }
         case let .rectangle(r):
             guard r.insetBy(dx: -reach, dy: -reach).contains(p) else { return false }
             return filled || !r.insetBy(dx: reach, dy: reach).contains(p)
@@ -234,4 +270,10 @@ extension Annotation {
             return zip(points, points.dropFirst()).contains { p.distance(toSegment: $0, $1) <= reach }
         }
     }
+}
+
+/// A point on the quadratic curve from `a` to `b` with control `c`.
+func quadPoint(_ a: CGPoint, _ c: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
+    let u = 1 - t
+    return a * (u * u) + c * (2 * u * t) + b * (t * t)
 }

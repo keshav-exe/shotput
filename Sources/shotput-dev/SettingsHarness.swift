@@ -52,6 +52,21 @@ func settingsHarness(to path: String) {
                    name: "welcome-\(step.rawValue)", width: nil, appearance: step.rawValue % 2 == 0 ? .darkAqua : .aqua)
     }
 
+    // Frames of the welcome film at its key moments.
+    let film = NSHostingView(rootView: WelcomeFilm())
+    let filmWindow = NSWindow(contentRect: CGRect(origin: .zero, size: WelcomeFilm.stage), styleMask: [.borderless], backing: .buffered, defer: false)
+    filmWindow.contentView = film
+    film.frame = CGRect(origin: .zero, size: WelcomeFilm.stage)
+    var elapsed = 0.0
+    for (index, moment) in [1.4, 2.9, 3.9, 5.0, 7.6].enumerated() {
+        RunLoop.main.run(until: Date().addingTimeInterval(moment - elapsed))
+        elapsed = moment
+        if let rep = film.bitmapImageRepForCachingDisplay(in: film.bounds) {
+            film.cacheDisplay(in: film.bounds, to: rep)
+            if let image = rep.cgImage { write(image, scale: 2, to: "\(base)-film-\(index).png") }
+        }
+    }
+
     let date = DateComponents(calendar: Calendar(identifier: .gregorian), year: 2026, month: 7, day: 9, hour: 17, minute: 8, second: 4).date!
     expect(ImageCoding.fileName(template: Settings.defaultTemplate, date: date, appName: nil) == "Shotput 2026-07-09 at 17.08.04",
            "default template matches the old file names")

@@ -57,6 +57,8 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
 @MainActor
 final class OnboardingState: ObservableObject {
     @Published var step: OnboardingWindowController.Step
+    /// Development only: treat Screen Recording as allowed, for renders of the guide.
+    static var assumeScreenRecording = false
     var onFinish: ((_ tryIt: Bool) -> Void)?
 
     init(step: OnboardingWindowController.Step) { self.step = step }
@@ -168,20 +170,11 @@ private struct WelcomeStep: View {
                 }
             }
 
-            Spacer(minLength: 40)
+            Spacer(minLength: 22)
 
-            Text("Press")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 14)
-            KeyCaps(shortcut: settings.shortcuts[.area] ?? .none, size: .large)
-            Text("in any app, drag over what you want, then paste. It is on the clipboard the moment you let go.")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 18)
+            WelcomeFilm()
 
-            Spacer(minLength: 40)
+            Spacer(minLength: 22)
 
             Text("Sandboxed with no network access, so nothing you capture leaves this Mac.")
                 .font(.callout)
@@ -192,7 +185,10 @@ private struct WelcomeStep: View {
 }
 
 private struct PermissionStep: View {
-    @State private var granted = CGPreflightScreenCaptureAccess()
+    /// Lets the dev harness render the granted state on a Mac where it has no permission.
+    static func isGranted() -> Bool { OnboardingState.assumeScreenRecording || CGPreflightScreenCaptureAccess() }
+
+    @State private var granted = PermissionStep.isGranted()
     @State private var asked = false
     private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -234,7 +230,7 @@ private struct PermissionStep: View {
             }
         }
         .onReceive(poll) { _ in
-            let now = CGPreflightScreenCaptureAccess()
+            let now = PermissionStep.isGranted()
             if now != granted { granted = now }
         }
     }
@@ -436,12 +432,12 @@ private struct NumberedRow: View {
 /// A shortcut drawn as the physical keys, one cap each. Shotput's one recurring motif: the
 /// guide teaches keys, so it shows keys.
 struct KeyCaps: View {
-    enum Size { case small, regular, large }
+    enum Size { case small, regular }
 
     let shortcut: Shortcut
     var size: Size = .regular
-    @State private var pressed: Int?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Keys up to and including this index are drawn held down. The welcome film drives it.
+    var pressed: Int?
 
     private var keys: [String] {
         guard shortcut.isSet else { return [] }
@@ -458,7 +454,6 @@ struct KeyCaps: View {
         switch size {
         case .small: (.system(size: 11, weight: .medium), 20, 5, 1.5, 3)
         case .regular: (.system(size: 13, weight: .medium), 26, 6, 2, 4)
-        case .large: (.system(size: 26, weight: .regular), 58, 12, 4, 10)
         }
     }
 
@@ -493,17 +488,6 @@ struct KeyCaps: View {
             }
             .accessibilityElement()
             .accessibilityLabel(shortcut.display)
-            .task {
-                guard size == .large, !reduceMotion else { return }
-                // Press the keys down in order, hold, release: the shortcut being typed once.
-                try? await Task.sleep(for: .milliseconds(500))
-                for index in keys.indices {
-                    withAnimation(.snappy(duration: 0.12)) { pressed = index }
-                    try? await Task.sleep(for: .milliseconds(90))
-                }
-                try? await Task.sleep(for: .milliseconds(260))
-                withAnimation(.spring(duration: 0.3, bounce: 0.35)) { pressed = nil }
-            }
         }
     }
 }

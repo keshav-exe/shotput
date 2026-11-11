@@ -90,10 +90,10 @@ private struct Swatch: View {
                     .overlay(Circle().strokeBorder(Palette.ink.color.opacity(0.18), lineWidth: 0.5))
                     .padding(isSelected ? 4 : 3)
             }
-            .frame(width: 24, height: 24)
+            .frame(width: 28, height: 28)
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CircleButtonStyle())
         .help("\(ink.name) (\(ink.rawValue + 1))")
         .accessibilityLabel(ink.name)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -109,15 +109,12 @@ private struct WeightButton: View {
         Button(action: action) {
             Capsule()
                 .fill(Palette.ink.color)
-                .frame(width: 16, height: [2, 3.5, 5.5][weight.rawValue])
-                .frame(width: 30, height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Palette.ink.color.opacity(isSelected ? 0.12 : 0))
-                )
-                .contentShape(Rectangle())
+                .frame(width: 14, height: [2, 3.5, 5.5, 8][weight.rawValue])
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Palette.ink.color.opacity(isSelected ? 0.12 : 0)))
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CircleButtonStyle())
         .help(weight.name)
         .accessibilityLabel("\(weight.name) weight")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -134,15 +131,34 @@ private struct BarButton: View {
         Button(action: action) {
             icon.view(size: 13, weight: .medium)
                 .foregroundStyle(isSelected ? Palette.accent.color : Palette.ink.color)
-                .frame(width: 30, height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Palette.accent.color.opacity(isSelected ? 0.14 : 0))
-                )
-                .contentShape(Rectangle())
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Palette.accent.color.opacity(isSelected ? 0.14 : 0)))
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CircleButtonStyle())
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+/// The style bar's hover and press, matching the toolbar's buttons: a faint circle on hover, a
+/// firmer one and a slight press while held.
+private struct CircleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { CircleButton(configuration: configuration) }
+
+    private struct CircleButton: View {
+        let configuration: Configuration
+        @State private var hovered = false
+        @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        var body: some View {
+            configuration.label
+                .background(Circle().fill(Palette.ink.color.opacity(configuration.isPressed ? 0.14 : hovered && isEnabled ? 0.08 : 0)))
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+                .onHover { hovered = $0 }
+                .animation(.easeOut(duration: 0.15), value: hovered)
+                .animation(.easeOut(duration: 0.06), value: configuration.isPressed)
+        }
     }
 }

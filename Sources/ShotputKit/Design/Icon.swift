@@ -24,6 +24,8 @@ enum Icon: String {
     case annotate = "pencil.tip.crop.circle"
     case close = "xmark"
     case check = "checkmark.circle.fill"
+    case checkmark = "checkmark"
+    case pin = "pin"
     case settings = "gearshape"
     case capture = "viewfinder"
     case folder = "folder"

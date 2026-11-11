@@ -13,14 +13,16 @@ final class PreviewPanelController {
         dismiss(animated: false)
 
         let size = Self.thumbnailSize(for: capture.pointSize)
-        let frame = Self.frame(for: size, capture: capture)
+        // The panel is larger than the thumbnail by a transparent margin that holds its shadow.
+        let frame = Self.frame(for: size, capture: capture).insetBy(dx: -Self.margin, dy: -Self.margin)
         let panel = NSPanel(
             contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
         )
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // The system window shadow adds a light rim in dark mode; the thumbnail draws its own.
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
@@ -34,15 +36,29 @@ final class PreviewPanelController {
         }
         view.onCopy = { [weak self] in
             if let png = capture.png() { Output.copyToClipboard(png.data) }
-            self?.dismiss()
+            // Long enough to see the check land, short enough not to linger.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self?.dismiss() }
         }
+        view.onPin = { [weak self] in
+            guard PinStore.shared.pin(capture) else { return }
+            self?.flyToMenuBar()
+        }
+        view.onDragStart = { [weak self] in
+            self?.dismissal?.invalidate()
+            PinShelf.shared.show(for: capture)
+        }
+        view.onDragEnd = { PinShelf.shared.hide() }
         view.onSave = { [weak self] in
             self?.dismiss()
             guard let file = capture.fileData() else { return }
             Output.save(file, relativeTo: nil) { _ in }
         }
         view.onClose = { [weak self] in self?.dismiss() }
-        panel.contentView = view
+        let host = ShadowHost(frame: CGRect(origin: .zero, size: frame.size))
+        view.frame = host.bounds.insetBy(dx: Self.margin, dy: Self.margin)
+        view.autoresizingMask = [.width, .height]
+        host.addSubview(view)
+        panel.contentView = host
         self.panel = panel
 
         // The thumbnail leaves from where the capture was taken and settles in its corner, so
@@ -56,14 +72,37 @@ final class PreviewPanelController {
         panel.alphaValue = 0
         panel.setFrame(reduceMotion ? frame : start, display: true)
         panel.orderFrontRegardless()
-        NSAnimationContext.runAnimationGroup { context in
+        NSAnimationContext.runAnimationGroup({ context in
             context.duration = start.center.distance(to: frame.center) > 120 ? 0.42 : 0.25
             // Quick out of the gate, gentle landing.
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
             panel.animator().alphaValue = 1
             panel.animator().setFrame(frame, display: true)
-        }
+        })
         scheduleDismissal()
+    }
+
+    /// Shrinks the thumbnail into the menu bar icon, so a pin visibly goes where it is kept.
+    private func flyToMenuBar() {
+        dismissal?.invalidate()
+        guard let panel else { return }
+        self.panel = nil
+        let target = MenuBarAnchor.target(on: panel.screen)
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.orderOut(nil)
+            NotificationCenter.default.post(name: .shotputDidPin, object: nil)
+            return
+        }
+        let end = CGRect(x: target.midX - 9, y: target.midY - 6, width: 18, height: 12).insetBy(dx: -Self.margin, dy: -Self.margin)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.42
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.5, 0, 0.75, 0.2)
+            panel.animator().setFrame(end, display: true)
+            panel.animator().alphaValue = 0.35
+        }, completionHandler: {
+            panel.orderOut(nil)
+            NotificationCenter.default.post(name: .shotputDidPin, object: nil)
+        })
     }
 
     func dismiss(animated: Bool = true) {
@@ -94,10 +133,12 @@ final class PreviewPanelController {
 
     // MARK: Placement
 
+    private static let margin: CGFloat = 24
+
     private static func thumbnailSize(for image: CGSize) -> CGSize {
         let limit = CGSize(width: 232, height: 148)
         let fit = min(limit.width / max(image.width, 1), limit.height / max(image.height, 1), 1)
-        return CGSize(width: max(image.width * fit, 132), height: max(image.height * fit, 84))
+        return CGSize(width: max(image.width * fit, 140), height: max(image.height * fit, 84))
     }
 
     /// Picks the corner of the capture's screen that is closest to the pointer without covering
@@ -121,14 +162,51 @@ final class PreviewPanelController {
     }
 }
 
+/// Draws the thumbnail's shadow, two layers deep, around whatever rounded view it holds.
+private final class ShadowHost: NSView {
+    private let ambient = CALayer()
+    private let contact = CALayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        for (shadow, radius, opacity, offset) in [(ambient, 16.0, 0.32, -6.0), (contact, 2.0, 0.22, -1.0)] {
+            shadow.shadowColor = NSColor.black.cgColor
+            shadow.shadowRadius = radius
+            shadow.shadowOpacity = Float(opacity)
+            shadow.shadowOffset = CGSize(width: 0, height: offset)
+            layer?.addSublayer(shadow)
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func layout() {
+        super.layout()
+        guard let thumbnail = subviews.first else { return }
+        let path = CGPath(roundedRect: thumbnail.frame, cornerWidth: Metrics.chipRadius, cornerHeight: Metrics.chipRadius, transform: nil)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        [ambient, contact].forEach { $0.frame = bounds; $0.shadowPath = path }
+        CATransaction.commit()
+    }
+}
+
 private final class PreviewView: NSView, NSDraggingSource {
     var onHover: ((Bool) -> Void)?
     var onAnnotate: (() -> Void)?
     var onCopy: (() -> Void)?
     var onSave: (() -> Void)?
     var onClose: (() -> Void)?
+    var onPin: (() -> Void)?
+    var onDragStart: (() -> Void)?
+    var onDragEnd: (() -> Void)?
 
     private let capture: Capture
+    private var copyButton: NSButton?
+    private let closeButton = NSView()
     private let scrim = CALayer()
     private let buttons = NSStackView()
     private var mouseDownLocation: CGPoint?
@@ -161,13 +239,27 @@ private final class PreviewView: NSView, NSDraggingSource {
         buttons.alphaValue = 0
         buttons.translatesAutoresizingMaskIntoConstraints = false
         buttons.addArrangedSubview(button(.annotate, "Annotate", #selector(annotate)))
-        buttons.addArrangedSubview(button(.copy, "Copy again", #selector(copyAgain)))
+        let copy = button(.copy, "Copy again", #selector(copyAgain))
+        copyButton = copy
+        buttons.addArrangedSubview(copy)
         buttons.addArrangedSubview(button(.save, "Save", #selector(save)))
-        buttons.addArrangedSubview(button(.close, "Dismiss", #selector(close)))
+        buttons.addArrangedSubview(button(.pin, "Pin to the menu bar", #selector(pin)))
         addSubview(buttons)
+        // Dismiss sits apart in the corner, as on the system's own screenshot thumbnail.
+        let dismiss = button(.close, "Dismiss", #selector(close))
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.alphaValue = 0
+        closeButton.addSubview(dismiss)
+        addSubview(closeButton)
         NSLayoutConstraint.activate([
             buttons.centerXAnchor.constraint(equalTo: centerXAnchor),
             buttons.centerYAnchor.constraint(equalTo: centerYAnchor),
+            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            dismiss.topAnchor.constraint(equalTo: closeButton.topAnchor),
+            dismiss.bottomAnchor.constraint(equalTo: closeButton.bottomAnchor),
+            dismiss.leadingAnchor.constraint(equalTo: closeButton.leadingAnchor),
+            dismiss.trailingAnchor.constraint(equalTo: closeButton.trailingAnchor),
         ])
 
         addTrackingArea(NSTrackingArea(
@@ -180,19 +272,15 @@ private final class PreviewView: NSView, NSDraggingSource {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     private func button(_ icon: Icon, _ label: String, _ action: Selector) -> NSButton {
-        let image = icon.image(size: 13, weight: .medium, label: label)
-        let button = NSButton(image: image, target: self, action: action)
-        button.isBordered = false
-        button.contentTintColor = .white
-        button.toolTip = label
-        button.setAccessibilityLabel(label)
-        button.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
-        return button
+        NSButton.glassCircle(icon, label: label, target: self, action: action)
     }
 
     @objc private func annotate() { onAnnotate?() }
-    @objc private func copyAgain() { onCopy?() }
+    @objc private func copyAgain() {
+        copyButton?.confirm(restoring: .copy)
+        onCopy?()
+    }
+    @objc private func pin() { onPin?() }
     @objc private func save() { onSave?() }
     @objc private func close() { onClose?() }
 
@@ -208,6 +296,7 @@ private final class PreviewView: NSView, NSDraggingSource {
             context.allowsImplicitAnimation = true
             scrim.opacity = hovered ? 1 : 0
             buttons.animator().alphaValue = hovered ? 1 : 0
+            closeButton.animator().alphaValue = hovered ? 1 : 0
         }
     }
 
@@ -226,6 +315,7 @@ private final class PreviewView: NSView, NSDraggingSource {
         let item = NSDraggingItem(pasteboardWriter: file as NSURL)
         item.setDraggingFrame(bounds, contents: NSImage(cgImage: capture.image, size: bounds.size))
         beginDraggingSession(with: [item], event: event, source: self)
+        onDragStart?()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -238,6 +328,7 @@ private final class PreviewView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        onDragEnd?()
         if operation != [] { onClose?() }
     }
 }

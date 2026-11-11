@@ -23,8 +23,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     let model: EditorModel
     let canvas: CanvasView
     private let scrollView = NSScrollView()
-    private var toolPicker: NSSegmentedControl?
-    private var backgroundButton: NSButton?
+    private var toolGroup: NSToolbarItemGroup?
+    private var actionItems: [NSToolbarItem.Identifier: (item: NSToolbarItem, icon: Icon)] = [:]
     private lazy var backdropControls: BackdropControls = {
         let controls = BackdropControls(current: model.backdrop?.style)
         controls.onChange = { [weak self] style, continuing in self?.applyBackdrop(style, continuing: continuing) }
@@ -69,7 +69,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         }
 
         model.$tool
-            .sink { [weak self] tool in self?.toolPicker?.selectedSegment = tool.rawValue }
+            .sink { [weak self] tool in self?.toolGroup?.selectedIndex = tool.rawValue }
             .store(in: &subscriptions)
         NotificationCenter.default.addObserver(
             self, selector: #selector(userMagnified), name: NSScrollView.didEndLiveMagnifyNotification, object: scrollView
@@ -190,29 +190,23 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     ) -> NSToolbarItem? {
         switch identifier {
         case .tools:
-            // A segmented control rather than an item group: group subitems never show their
-            // tooltips, and every tool needs one to say what it is and which key picks it.
-            let picker = NSSegmentedControl(
+            let group = NSToolbarItemGroup(
+                itemIdentifier: identifier,
                 images: Tool.allCases.map { $0.icon.plain(label: $0.title) },
-                trackingMode: .selectOne, target: self, action: #selector(toolPicked(_:))
+                selectionMode: .selectOne,
+                labels: Tool.allCases.map(\.title),
+                target: self, action: #selector(toolPicked(_:))
             )
-            picker.segmentStyle = .automatic
-            for tool in Tool.allCases {
-                picker.setToolTip("\(tool.title)  \(String(tool.key).uppercased())", forSegment: tool.rawValue)
-                picker.setWidth(32, forSegment: tool.rawValue)
+            for (tool, item) in zip(Tool.allCases, group.subitems) {
+                item.toolTip = "\(tool.title)  \(String(tool.key).uppercased())"
             }
-            picker.selectedSegment = model.tool.rawValue
-            picker.setAccessibilityLabel("Tools")
-            toolPicker = picker
-            let item = NSToolbarItem(itemIdentifier: identifier)
-            item.view = picker
-            item.label = "Tools"
-            item.toolTip = "Annotation tools"
-            return item
+            group.selectedIndex = model.tool.rawValue
+            group.label = "Tools"
+            toolGroup = group
+            return group
         case .background:
             let item = button(identifier, "Background", .background, #selector(showBackground(_:)),
-                              tip: "Background: put the screenshot on your wallpaper or a colour")
-            backgroundButton = item.view as? NSButton
+                              tip: "Background")
             return item
         case .recognizeText:
             return button(identifier, "Copy text", .readText, #selector(copyRecognizedText(_:)),
@@ -236,24 +230,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         }
     }
 
-    /// A toolbar button backed by a real NSButton, so its tooltip shows reliably on hover.
+    /// A standard bordered toolbar button, so hover and press come from the system.
     private func button(
         _ identifier: NSToolbarItem.Identifier, _ label: String, _ icon: Icon, _ action: Selector, tip: String
     ) -> NSToolbarItem {
         let item = NSToolbarItem(itemIdentifier: identifier)
-        let image = icon.plain(label: label)
-        let button = NSButton(image: image, target: self, action: action)
-        button.bezelStyle = .toolbar
-        button.toolTip = tip
-        button.setAccessibilityLabel(label)
-        item.view = button
+        item.image = icon.plain(label: label)
         item.label = label
         item.toolTip = tip
+        item.isBordered = true
+        item.target = self
+        item.action = action
+        actionItems[identifier] = (item, icon)
         return item
     }
 
-    @objc private func toolPicked(_ sender: NSSegmentedControl) {
-        guard let tool = Tool(rawValue: sender.selectedSegment) else { return }
+    /// Shows a check in place of the button's icon for a moment, so the action visibly landed.
+    private func confirm(_ identifier: NSToolbarItem.Identifier) {
+        guard let (item, icon) = actionItems[identifier] else { return }
+        item.image = Icon.checkmark.plain(label: item.label)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { item.image = icon.plain(label: item.label) }
+    }
+
+    @objc private func toolPicked(_ sender: NSToolbarItemGroup) {
+        guard let tool = Tool(rawValue: sender.selectedIndex) else { return }
         canvas.commitText()
         model.setTool(tool)
         window?.makeFirstResponder(canvas)
@@ -283,6 +283,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         if Settings.shared.editorClosesOnCopy {
             close()
         } else {
+            confirm(.copy)
             model.showToast("Copied")
         }
     }
@@ -295,7 +296,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc func saveDocument(_ sender: Any?) {
         guard commitToCapture() != nil, let file = capture.fileData() else { return }
         Output.save(file, relativeTo: window) { [weak self] url in
-            if let url { self?.model.showToast("Saved to \(url.deletingLastPathComponent().lastPathComponent)") }
+            guard let url else { return }
+            self?.confirm(.save)
+            self?.model.showToast("Saved to \(url.deletingLastPathComponent().lastPathComponent)")
         }
     }
 
@@ -316,12 +319,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     // MARK: Background
 
     @objc func showBackground(_ sender: Any?) {
-        guard let anchor = backgroundButton ?? window?.contentView else { return }
+        guard let item = (sender as? NSToolbarItem) ?? actionItems[.background]?.item else { return }
         backdropControls.sync(model.backdrop?.style)
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: BackdropPicker(controls: backdropControls))
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        let host = NSHostingController(rootView: BackdropPicker(controls: backdropControls))
+        host.sizingOptions = .preferredContentSize
+        popover.contentViewController = host
+        popover.show(relativeTo: item)
     }
 
     private func applyBackdrop(_ style: Backdrop.Style?, continuing: Bool) {
@@ -345,6 +350,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             guard let self else { return }
             if let text {
                 Output.copyToClipboard(text: text)
+                self.confirm(.recognizeText)
                 self.model.showToast(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
             } else {
                 self.model.showToast("No text found")

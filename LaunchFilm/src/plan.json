@@ -1,0 +1,81 @@
+{
+  "screen": {
+    "w": 1512,
+    "h": 982
+  },
+  "comment": "Choreography shared by the Swift film harness and the Remotion edit. Screen points, top-left origin. Capture-local points are measured from the top-left of the captured area.",
+  "capture": {
+    "x": 363,
+    "y": 284,
+    "w": 308,
+    "h": 404
+  },
+  "windows": [
+    {
+      "id": 1,
+      "x": 52,
+      "y": 62,
+      "w": 930,
+      "h": 812
+    },
+    {
+      "id": 2,
+      "x": 1006,
+      "y": 92,
+      "w": 456,
+      "h": 724
+    }
+  ],
+  "overlay": {
+    "start": {
+      "x": 952,
+      "y": 768
+    },
+    "moveFrom": 0.25,
+    "moveTo": 1.35,
+    "down": 1.6,
+    "dragTo": 2.85,
+    "up": 3.05
+  },
+  "thumb": {
+    "x": 90,
+    "y": 814
+  },
+  "editor": {
+    "arrowFrom": {
+      "x": 236,
+      "y": 196
+    },
+    "arrowTo": {
+      "x": 190,
+      "y": 118
+    },
+    "label": {
+      "x": 92,
+      "y": 200
+    },
+    "text": "Badge covers the price",
+    "moveFrom": 0.5,
+    "moveTo": 1.4,
+    "down": 1.55,
+    "dragTo": 2.25,
+    "up": 2.3,
+    "toolKey": 2.9,
+    "labelMoveFrom": 3.05,
+    "labelMoveTo": 3.7,
+    "labelClick": 3.8,
+    "typeFrom": 4.0,
+    "typeEvery": 0.055,
+    "commit": 5.6,
+    "done": 6.4,
+    "end": 6.6
+  },
+  "onboard": {
+    "permission": 9.1,
+    "granted": 10.5,
+    "shortcuts": 12.9,
+    "mouse": 16.9,
+    "ready": 19.7,
+    "end": 22.2
+  }
+}

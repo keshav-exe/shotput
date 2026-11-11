@@ -30,6 +30,7 @@ final class Settings: ObservableObject {
         static let ocrLanguageCorrection = "ocrLanguageCorrection"
         static let editorClosesOnCopy = "editorClosesOnCopy"
         static let escapeInEditor = "escapeInEditor"
+        static let recognizesShapes = "recognizesShapes"
     }
 
     enum AfterCapture: String, CaseIterable, Identifiable {
@@ -154,6 +155,7 @@ final class Settings: ObservableObject {
 
     @Published var editorClosesOnCopy: Bool { didSet { store(editorClosesOnCopy, Key.editorClosesOnCopy) } }
     @Published var escapeInEditor: EscapeInEditor { didSet { store(escapeInEditor.rawValue, Key.escapeInEditor) } }
+    @Published var recognizesShapes: Bool { didSet { store(recognizesShapes, Key.recognizesShapes) } }
 
     /// The backdrop window captures get, or nil to keep them on transparency.
     var windowBackdrop: Backdrop.Style? {
@@ -177,6 +179,7 @@ final class Settings: ObservableObject {
         Key.filenameTemplate: defaultTemplate,
         Key.ocrKeepsLineBreaks: true,
         Key.ocrLanguageCorrection: true,
+        Key.recognizesShapes: true,
     ]
 
     private init() {
@@ -207,6 +210,7 @@ final class Settings: ObservableObject {
         ocrLanguageCorrection = defaults.bool(forKey: Key.ocrLanguageCorrection)
         editorClosesOnCopy = defaults.bool(forKey: Key.editorClosesOnCopy)
         escapeInEditor = EscapeInEditor(rawValue: defaults.string(forKey: Key.escapeInEditor) ?? "") ?? .discard
+        recognizesShapes = defaults.bool(forKey: Key.recognizesShapes)
 
         var loaded: [HotAction: Shortcut] = [:]
         if let data = defaults.data(forKey: Key.shortcuts),
@@ -250,6 +254,7 @@ final class Settings: ObservableObject {
         ocrLanguageCorrection = true
         editorClosesOnCopy = false
         escapeInEditor = .discard
+        recognizesShapes = true
     }
 
     // MARK: Save folder

@@ -30,11 +30,19 @@ public final class AnnotationRenderer {
 
         switch a.kind {
         case let .arrow(from, to):
-            drawArrow(from: from, to: to, a, zoom, ctx)
+            if let bend = a.bend {
+                drawCurvedArrow(from: from, control: bend, to: to, a, zoom, ctx)
+            } else {
+                drawArrow(from: from, to: to, a, zoom, ctx)
+            }
         case let .line(from, to):
             let path = CGMutablePath()
             path.move(to: from)
-            path.addLine(to: to)
+            if let bend = a.bend {
+                path.addQuadCurve(to: to, control: bend)
+            } else {
+                path.addLine(to: to)
+            }
             stroke(path, a, zoom, ctx)
         case let .rectangle(rect):
             let radius = min(a.weight.stroke + 2, min(rect.width, rect.height) / 2)
@@ -120,6 +128,76 @@ public final class AnnotationRenderer {
         path.addLine(to: wings - n * headHalf)
         path.addLine(to: neck - n * neckHalf)
         path.addLine(to: start - n * tailHalf)
+        path.closeSubpath()
+
+        shadowed(zoom, ctx) {
+            ctx.addPath(path)
+            ctx.setFillColor(a.color.halo)
+            ctx.setStrokeColor(a.color.halo)
+            ctx.setLineWidth(rounding + Self.haloWidth * 2)
+            ctx.drawPath(using: .fillStroke)
+
+            ctx.addPath(path)
+            ctx.setFillColor(a.color.cgColor)
+            ctx.setStrokeColor(a.color.cgColor)
+            ctx.setLineWidth(rounding)
+            ctx.drawPath(using: .fillStroke)
+        }
+    }
+
+    /// The same tapered arrow, with its shaft following a quadratic curve. The head points
+    /// along the curve's direction where it arrives.
+    private func drawCurvedArrow(from start: CGPoint, control: CGPoint, to end: CGPoint, _ a: Annotation, _ zoom: CGFloat, _ ctx: CGContext) {
+        let w = a.weight.stroke
+        let arrival = end - control
+        let arrivalLength = max(arrival.length, 0.001)
+        let u = arrival * (1 / arrivalLength)
+        let n = CGPoint(x: -u.y, y: u.x)
+
+        let samples = 48
+        let curve = (0 ... samples).map { quadPoint(start, control, end, CGFloat($0) / CGFloat(samples)) }
+        let length = zip(curve, curve.dropFirst()).reduce(0) { $0 + $1.0.distance(to: $1.1) }
+        let rounding = w * 0.5
+        let headLength = min(max(w * 4.4, 13), length * 0.62)
+        let headHalf = headLength * 0.52
+        let tip = end - u * (rounding / 2)
+        let wings = tip - u * headLength
+        let neck = tip - u * (headLength * 0.8)
+        let neckHalf = min(w * 0.38, headHalf * 0.4)
+        let tailHalf = w * 0.14
+
+        // The shaft runs along the curve until it reaches the neck of the head.
+        var shaft: [CGPoint] = []
+        for point in curve {
+            if point.distance(to: tip) <= headLength * 0.8 { break }
+            shaft.append(point)
+        }
+        guard shaft.count >= 2 else {
+            drawArrow(from: start, to: end, a, zoom, ctx)
+            return
+        }
+        shaft.append(neck)
+
+        var left: [CGPoint] = []
+        var right: [CGPoint] = []
+        for (index, point) in shaft.enumerated() {
+            let previous = shaft[max(index - 1, 0)]
+            let next = shaft[min(index + 1, shaft.count - 1)]
+            let direction = next - previous
+            let normal = CGPoint(x: -direction.y, y: direction.x) * (1 / max(direction.length, 0.001))
+            let t = CGFloat(index) / CGFloat(shaft.count - 1)
+            let half = tailHalf + (neckHalf - tailHalf) * t
+            left.append(point + normal * half)
+            right.append(point - normal * half)
+        }
+
+        let path = CGMutablePath()
+        path.move(to: left[0])
+        left.dropFirst().forEach { path.addLine(to: $0) }
+        path.addLine(to: wings + n * headHalf)
+        path.addLine(to: tip)
+        path.addLine(to: wings - n * headHalf)
+        right.reversed().forEach { path.addLine(to: $0) }
         path.closeSubpath()
 
         shadowed(zoom, ctx) {

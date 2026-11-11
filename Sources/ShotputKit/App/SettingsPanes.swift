@@ -121,9 +121,6 @@ struct GeneralPane: View {
             }
 
             Section {
-                LabeledContent("Welcome guide") {
-                    Button("Show Again") { (NSApp.delegate as? AppDelegate)?.showOnboarding(.welcome) }
-                }
                 LabeledContent("All settings") {
                     Button("Reset…") { confirmsReset = true }
                 }
@@ -228,6 +225,13 @@ struct EditorPane: View {
             } footer: {
                 Text("Return always copies and closes. Esc first clears a selection or crop, then closes.")
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Drawing") {
+                Toggle(isOn: $settings.recognizesShapes) {
+                    Text("Turn sketches into shapes")
+                    Text("A pen stroke that looks like a line, arrow, rectangle, or circle becomes one. ⌘Z keeps the sketch.")
+                }
             }
 
             Section("Text recognition") {

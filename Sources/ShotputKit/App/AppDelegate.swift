@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var settingsController: SettingsWindowController?
     private var onboarding: OnboardingWindowController?
     private var subscriptions = Set<AnyCancellable>()
+    private var statusMenu: NSMenu?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Output.purgeTemporaryFiles()
@@ -38,7 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item.button?.image = Icon.capture.plain(label: "Shotput")
         let menu = NSMenu()
         menu.delegate = self
-        item.menu = menu
+        statusMenu = menu
+        // Left click opens the pinned tray; right click, or Control-click, the menu.
+        item.button?.target = self
+        item.button?.action = #selector(statusItemClicked(_:))
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        item.button?.toolTip = "Shotput: click for pins, right-click for captures and settings"
         statusItem = item
         Settings.shared.$showsMenuBarIcon
             .sink { [weak item] visible in item?.isVisible = visible }
@@ -52,8 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             .store(in: &subscriptions)
 
         NotificationCenter.default.publisher(for: .shotputDidCapture)
+            .merge(with: NotificationCenter.default.publisher(for: .shotputDidPin))
             .sink { [weak self] _ in self?.pulseMenuBarIcon() }
             .store(in: &subscriptions)
+        MenuBarAnchor.frame = { [weak item] in
+            guard let button = item?.button, let window = button.window, item?.isVisible == true else { return nil }
+            return window.convertToScreen(button.convert(button.bounds, to: nil))
+        }
 
         HotKeyCenter.reload()
 
@@ -122,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.removeAllItems()
         let shortcuts = Settings.shared.shortcuts
 
+
         func add(_ action: HotAction, _ selector: Selector) {
             let item = menu.addItem(withTitle: action.title, action: selector, keyEquivalent: "")
             item.target = self
@@ -142,13 +154,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         add(.annotateLast, #selector(annotateLast))
         add(.annotateClipboard, #selector(annotateClipboard))
         menu.addItem(.separator())
-        let guide = menu.addItem(withTitle: "Welcome Guide…", action: #selector(openWelcomeGuide(_:)), keyEquivalent: "")
-        guide.target = self
-        guide.image = Icon.info.plain()
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settings.target = self
         settings.image = Icon.settings.plain()
         menu.addItem(withTitle: "Quit Shotput", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            PinTray.shared.close()
+            showStatusMenu()
+        } else {
+            PinTray.shared.toggle(from: sender)
+        }
+    }
+
+    private func showStatusMenu() {
+        guard let statusItem, let statusMenu else { return }
+        // Attached only while it shows, so a left click stays free for the tray.
+        statusItem.menu = statusMenu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
@@ -183,10 +210,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if controller.window?.isVisible == false { AppPresence.shared.windowDidOpen() }
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    @objc func openWelcomeGuide(_ sender: Any?) {
-        showOnboarding(.welcome)
     }
 
     func showOnboarding(_ step: OnboardingWindowController.Step) {

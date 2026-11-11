@@ -197,6 +197,7 @@ func editorHarness(to path: String) {
     frameView.cacheDisplay(in: frameView.bounds, to: rep)
     if let image = rep.cgImage { write(image, scale: 2, to: path) }
     if let flat { write(flat, scale: 2, to: path.replacingOccurrences(of: ".png", with: "-export.png")) }
+    drawingChecks(expect, render: path.replacingOccurrences(of: ".png", with: "-curves.png"))
     print(failures == 0 ? "all checks passed" : "\(failures) check(s) failed")
 }
 

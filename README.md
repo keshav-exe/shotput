@@ -10,9 +10,9 @@ into your agent. Annotate first when the picture needs a pointer.
 Needs macOS 26 or later.
 
 Download `Shotput-<version>.dmg` from [Releases](https://github.com/keshav-exe/shotput/releases/latest),
-open it, and drag Shotput to Applications. Release builds are not notarized yet, so the first
-time you open it macOS says it cannot check the app. Open **System Settings → Privacy &
-Security**, scroll down, and click **Open Anyway**. Or clear the flag in Terminal:
+open it, and drag Shotput to Applications. The current release isn't notarized, so the first
+time you open it macOS says it can't check the app. Open **System Settings → Privacy &
+Security**, scroll down, and click **Open Anyway**, or clear the flag in Terminal:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Shotput.app
@@ -26,8 +26,9 @@ To build it yourself instead, you need Xcode's command line tools:
 
 That builds `build/Shotput.app`, signs it, copies it to `/Applications`, and opens it.
 
-On first launch a short welcome guide walks through Screen Recording, the shortcuts, and setting
-up a mouse button. Open it again any time from the menu bar icon.
+The first launch opens a short guide: a few seconds of Shotput at work, then Screen Recording,
+the shortcuts, and setting up a mouse button. Settings → Shortcuts → Show Me How brings back the
+mouse button page.
 
 ## Use it from a Logitech mouse
 
@@ -73,22 +74,31 @@ The image is on the clipboard straight away, so you can paste without waiting. A
 then appears in the screen corner nearest your pointer that does not cover what you captured.
 
 - Click it to annotate.
-- Drag it into any app as a file.
+- Drag it into any app as a file, or up to the menu bar to pin it.
 - Ignore it and it leaves after a few seconds. It never takes focus.
 
 Settings can open the editor every time instead, or skip the preview and copy quietly.
+
+## Pins
+
+Drag a preview towards the menu bar and a shelf drops out under the Shotput icon. Let go over
+it to pin, or use the pin button on the preview.
+
+Click the menu bar icon to open the tray. It holds the last 15 pins in a strip that scrolls
+sideways. Click a pin to copy it, Option-click to annotate it, or drag it into any app.
+Right-click the icon for captures, Settings, and Quit.
 
 ## Annotating
 
 | Tool | Key | Notes |
 |---|---|---|
-| Arrow | A | Shift snaps to 45° steps. |
-| Line | L | |
+| Arrow | A | Shift snaps to 45° steps. Drag the middle handle to curve it. |
+| Line | L | Drag the middle handle to curve it, double click it to straighten. |
 | Rectangle | R | Shift for a square. Fill tints the inside. |
 | Ellipse | O | Shift for a circle. |
 | Text | T | Return finishes, Shift Return adds a line. Double click to edit. |
 | Step number | N | Counts up on each click. |
-| Pen | P | |
+| Pen | P | Sketch a line, arrow, rectangle, or circle and it becomes one. ⌘Z keeps the sketch. |
 | Highlighter | H | |
 | Redact | B | Mosaic by default. Fill makes it a solid block. |
 | Crop | C | |
@@ -97,27 +107,23 @@ Keys 1 to 8 pick a colour. Every mark has a thin halo and soft shadow, so it sta
 any background, including one of its own colour.
 
 Drag any mark to move it, drag its handles to reshape it, and use the arrow keys to nudge.
-Delete removes it. Undo and redo work as usual.
+Delete removes it.
 
-The toolbar's **Background** button puts any screenshot on your wallpaper or a colour, with
-adjustable padding, a soft shadow, and rounded corners. Marks stay where you put them, and
-choosing None takes it off again.
+The toolbar's Background button puts the screenshot on your wallpaper or a colour, with padding,
+a soft shadow, and rounded corners. Marks stay where you put them. None takes it off again.
 
 **Return** copies the result and closes the editor. ⌘C copies and keeps it open, and ⌘S saves.
 The toolbar can also copy the text in the screenshot, read on your Mac.
 
 ## Settings
 
-Settings is split into tabs, so each page fits on a laptop screen.
-
-- **General**: open at login, show or hide the menu bar icon, capture sound, allow links, reset.
-- **Capture**: magnifier, edge snapping, selection hints, what happens after a capture, where the
-  preview appears and how long it stays, window shadow, a background for window captures (your
-  current wallpaper or a solid colour, with padding), and the pointer in screen captures.
-- **Editor**: what Esc does, whether ⌘C also closes, and how text recognition joins lines.
-- **Output**: standard resolution, save folder, save every capture, PNG, JPEG or HEIC with a
-  quality slider, and a file name template such as `%n %Y-%m-%d %H.%M.%S`.
-- **Shortcuts**: every action above, plus the mouse button guide.
+| Tab | What you can change |
+|---|---|
+| General | Open at login, the menu bar icon, the capture sound, links, and a reset. |
+| Capture | The magnifier, edge snapping, selection hints, what follows a capture, where the preview sits and how long it stays, window shadows, a wallpaper or colour behind window captures, and the pointer in screen captures. |
+| Editor | What Esc does, whether ⌘C also closes, turning sketches into shapes, and how text recognition joins lines. |
+| Output | Standard resolution, the save folder, saving every capture, PNG, JPEG or HEIC with a quality slider, and a file name template such as `%n %Y-%m-%d %H.%M.%S`. |
+| Shortcuts | Every action above, and the mouse button guide. |
 
 ## Privacy and footprint
 
@@ -142,24 +148,31 @@ swift run shotput-dev overlay /tmp/overlay.png
 swift run shotput-dev settings /tmp/settings.png
 ```
 
-These drive the editor and the selection overlay offscreen with synthetic mouse events, check
-the results, and write renders you can look at. `settings` renders every Settings tab and
-welcome step and checks that each fits on a small screen. `preview` renders every kind of mark, and
-`Scripts/make-icon.sh` rebuilds the app icon from the same renderer.
+The first two drive the editor and the selection overlay offscreen with synthetic mouse events,
+check the results, and write renders you can look at. The editor run also tests shape
+recognition and curved arrows. `settings` renders every Settings tab, each welcome step, and
+frames of the welcome film, and checks that each page fits a small screen.
+
+`preview` renders every kind of mark, `installer` draws the installer window background into
+`Resources/Installer`, and `Scripts/make-icon.sh` rebuilds the app icon. All three use the same
+renderer as the editor.
 
 ## Releasing
 
-Push a version tag and GitHub Actions builds a universal app, packages a `.dmg` and `.zip` with
-checksums, and publishes the release. Tags with a hyphen, such as `v0.2.0-beta.1`, are marked
-as pre-releases.
+The signed, notarized way is from a Mac with your Developer ID certificate:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+./Scripts/release.sh 0.3.0
 ```
 
-To package locally, run `SHOTPUT_VERSION=0.2.0 ./Scripts/build.sh` and then `./Scripts/package.sh`.
-Builds are ad-hoc signed unless the Developer ID and notary secrets described in
-`.github/workflows/release.yml` are set, in which case they are signed and notarized.
+It runs the checks, builds a universal app, signs and notarizes the `.dmg` and `.zip`, then tags
+the version and publishes the GitHub release. Notarization needs a keychain profile saved once
+with `xcrun notarytool store-credentials shotput`, and the script says so if it's missing.
+Versions with a hyphen, such as `0.3.0-beta.1`, become pre-releases.
+
+Pushing a `v*` tag also runs a release on GitHub Actions. Without the Developer ID and notary
+secrets listed in `.github/workflows/release.yml`, that build is unsigned, and macOS warns
+people the first time they open it.
 
 ## Licence
 

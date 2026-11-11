@@ -9,6 +9,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case move(id: UUID, last: CGPoint)
         case rect(id: UUID, anchor: CGPoint, creating: Bool)
         case endpoint(id: UUID, movesStart: Bool, creating: Bool)
+        case bend(id: UUID)
         case pen(id: UUID)
         case crop(anchor: CGPoint)
     }
@@ -111,6 +112,19 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if let ends = selected.endpoints {
             handle(ends.from)
             handle(ends.to)
+            // The bend handle is smaller and filled, so it reads as "shape this" rather than "move an end".
+            if let middle = selected.bendHandle, ends.from.distance(to: ends.to) > 28 / zoom {
+                let r = 3.5 * unit
+                let dot = CGRect(x: middle.x - r, y: middle.y - r, width: r * 2, height: r * 2)
+                ctx.saveGState()
+                ctx.setShadow(offset: CGSize(width: 0, height: -0.5), blur: 2, color: NSColor.black.withAlphaComponent(0.3).cgColor)
+                ctx.setFillColor(selected.bend == nil ? .white : accent)
+                ctx.fillEllipse(in: dot)
+                ctx.restoreGState()
+                ctx.setLineWidth(1.5 * unit)
+                ctx.setStrokeColor(selected.bend == nil ? accent : .white)
+                ctx.strokeEllipse(in: dot)
+            }
         } else if let rect = selected.resizableRect {
             ctx.stroke(rect)
             rect.corners.forEach(handle)
@@ -156,6 +170,15 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 }
                 if p.distance(to: ends.from) <= reach {
                     drag = .endpoint(id: selected.id, movesStart: true, creating: false)
+                    return
+                }
+                if let middle = selected.bendHandle, p.distance(to: middle) <= reach {
+                    // Double click a bent line to straighten it again.
+                    if event.clickCount == 2 {
+                        model.replace(selected.id) { var copy = $0; copy.bend = nil; return copy }
+                        return
+                    }
+                    drag = .bend(id: selected.id)
                     return
                 }
             } else if let rect = selected.resizableRect {
@@ -258,6 +281,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 }
                 return annotation.withEndpoints(from: movesStart ? p : fixed, to: movesStart ? fixed : p)
             }
+        case let .bend(id):
+            model.replace(id) { $0.bent(through: raw) }
         case let .pen(id):
             model.replace(id) { annotation in
                 guard case var .pen(points) = annotation.kind,
@@ -283,9 +308,15 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 annotation.endpoints.map { $0.from.distance(to: $0.to) >= 6 } ?? false
             }
         case let .pen(id):
-            if case let .pen(points)? = model.annotations.first(where: { $0.id == id })?.kind, points.count < 2 {
+            guard case let .pen(points)? = model.annotations.first(where: { $0.id == id })?.kind else { break }
+            if points.count < 2 {
                 model.discardGesture()
                 model.selectedID = clickedAreaMark
+            } else if Settings.shared.recognizesShapes, let shape = ShapeRecognizer.recognize(points) {
+                // A separate undo step, so ⌘Z brings the sketch back.
+                model.beginGesture()
+                model.replace(id) { var copy = $0; copy.kind = shape.kind; return copy }
+                model.showToast("Made it a \(shape.name). ⌘Z keeps the sketch")
             }
         case .crop:
             if let rect = cropRect?.integral, rect.width >= 8, rect.height >= 8 {

@@ -6,6 +6,13 @@ final class EditorModel: ObservableObject {
     private struct Snapshot {
         let base: CGImage
         let annotations: [Annotation]
+        let backdrop: AppliedBackdrop?
+    }
+
+    /// The image as it was before a backdrop was added, and the backdrop around it now.
+    struct AppliedBackdrop {
+        let plain: CGImage
+        let style: Backdrop.Style
     }
 
     /// Base image pixels per point.
@@ -21,6 +28,7 @@ final class EditorModel: ObservableObject {
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
     @Published private(set) var toast: String?
+    @Published private(set) var backdrop: AppliedBackdrop?
 
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
@@ -103,7 +111,7 @@ final class EditorModel: ObservableObject {
     }
 
     private func checkpoint() {
-        undoStack.append(Snapshot(base: base, annotations: annotations))
+        undoStack.append(Snapshot(base: base, annotations: annotations, backdrop: backdrop))
         redoStack.removeAll()
         canUndo = true
         canRedo = false
@@ -111,19 +119,20 @@ final class EditorModel: ObservableObject {
 
     func undo() {
         guard let snapshot = undoStack.popLast() else { return }
-        redoStack.append(Snapshot(base: base, annotations: annotations))
+        redoStack.append(Snapshot(base: base, annotations: annotations, backdrop: backdrop))
         restore(snapshot)
     }
 
     func redo() {
         guard let snapshot = redoStack.popLast() else { return }
-        undoStack.append(Snapshot(base: base, annotations: annotations))
+        undoStack.append(Snapshot(base: base, annotations: annotations, backdrop: backdrop))
         restore(snapshot)
     }
 
     private func restore(_ snapshot: Snapshot) {
         base = snapshot.base
         annotations = snapshot.annotations
+        backdrop = snapshot.backdrop
         selectedID = nil
         canUndo = !undoStack.isEmpty
         canRedo = !redoStack.isEmpty
@@ -146,6 +155,33 @@ final class EditorModel: ObservableObject {
             list = list.map { $0.translated(by: shift) }
         }
         base = cropped
+        // The crop now owns the pixels, backdrop and all, so there is nothing left to swap.
+        backdrop = nil
+        selectedID = nil
+    }
+
+    /// Starts the editor on an image that was framed as it was captured.
+    func adoptBackdrop(plain: CGImage, style: Backdrop.Style) {
+        backdrop = AppliedBackdrop(plain: plain, style: style)
+    }
+
+    /// Puts the image on a backdrop, swaps the current one, or removes it with nil. Marks keep
+    /// their place on the screenshot, and each change is one undo step.
+    /// - Parameter coalesce: Folds into the previous step, for continuous changes like a slider.
+    func setBackdrop(_ style: Backdrop.Style?, wallpaper: CGImage?, coalesce: Bool = false) {
+        let plain = backdrop?.plain ?? base
+        let oldPadding = backdrop?.style.padding ?? 0
+        let newPadding = style?.padding ?? 0
+        if !coalesce { checkpoint() }
+        let shift = CGPoint(x: newPadding - oldPadding, y: newPadding - oldPadding)
+        annotations = annotations.map { $0.translated(by: shift) }
+        if let style {
+            base = Backdrop.compose(plain, scale: scale, style: style, wallpaper: wallpaper)
+            backdrop = AppliedBackdrop(plain: plain, style: style)
+        } else {
+            base = plain
+            backdrop = nil
+        }
         selectedID = nil
     }
 

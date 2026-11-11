@@ -35,7 +35,7 @@ final class SelectionOverlay {
             panel.acceptsMouseMovedEvents = true
 
             let local = windows.map {
-                WindowInfo(id: $0.id, frame: $0.frame.offsetBy(dx: -frame.minX, dy: -frame.minY))
+                WindowInfo(id: $0.id, frame: $0.frame.offsetBy(dx: -frame.minX, dy: -frame.minY), ownerName: $0.ownerName)
             }
             let visible = shot.screen.visibleFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
             let view = OverlayView(overlay: self, shot: shot, windows: local, visibleFrame: visible, showHint: showHint)
@@ -130,7 +130,10 @@ final class OverlayView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: currentCursor) }
+
+    /// A camera over windows, as the system screenshot tool does, and a crosshair for areas.
+    private var currentCursor: NSCursor { overlay.mode == .window ? CameraCursor.shared : .crosshair }
 
     // MARK: Layers
 
@@ -226,7 +229,7 @@ final class OverlayView: NSView {
 
     private func setPointerChromeHidden(_ hidden: Bool) {
         withoutAnimation {
-            loupe.isHidden = hidden || overlay.mode == .window
+            loupe.isHidden = hidden || overlay.mode == .window || !Settings.shared.showsMagnifier
             horizontalGuide.isHidden = hidden || overlay.mode == .window || anchor != nil
             verticalGuide.isHidden = horizontalGuide.isHidden
         }
@@ -252,17 +255,20 @@ final class OverlayView: NSView {
                 radius = 10
                 outline.strokeColor = Palette.accent.cgColor
                 outline.lineWidth = 2
+                // A light wash of the accent, so the window reads as picked up rather than outlined.
+                outline.fillColor = Palette.accent.cgColor.copy(alpha: 0.12)
             } else if overlay.mode == .area, let selection, selection.width > 0, selection.height > 0 {
                 cutout = selection
                 outline.strokeColor = NSColor.white.cgColor
                 outline.lineWidth = 1
+                outline.fillColor = nil
             }
 
             if let cutout, !cutout.isNull {
                 let shape = CGPath(roundedRect: cutout, cornerWidth: radius, cornerHeight: radius, transform: nil)
                 path.addPath(shape)
                 outline.path = shape
-                showBadge(for: cutout)
+                showBadge(for: cutout, name: overlay.mode == .window ? hovered?.ownerName : nil)
             } else {
                 outline.path = nil
                 badge.isHidden = true
@@ -271,8 +277,9 @@ final class OverlayView: NSView {
         }
     }
 
-    private func showBadge(for rect: CGRect) {
-        let string = "\(Int(rect.width)) × \(Int(rect.height))"
+    private func showBadge(for rect: CGRect, name: String? = nil) {
+        let dimensions = "\(Int(rect.width)) × \(Int(rect.height))"
+        let string = name.map { "\($0)  \(dimensions)" } ?? dimensions
         let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         let textWidth = ceil((string as NSString).size(withAttributes: [.font: font]).width)
         let size = CGSize(width: textWidth + 14, height: 22)
@@ -291,7 +298,7 @@ final class OverlayView: NSView {
     /// actually visible, so windows hidden behind others do not create phantom snaps.
     private func snapped(_ p: CGPoint, enabled: Bool) -> (point: CGPoint, x: Bool, y: Bool) {
         var result = CGPoint(x: p.x.rounded(), y: p.y.rounded())
-        guard enabled else { return (result.clamped(to: bounds), false, false) }
+        guard enabled, Settings.shared.snapsToEdges else { return (result.clamped(to: bounds), false, false) }
         let reach = Self.snapDistance
         var bestX = reach, bestY = reach
         var hitX = false, hitY = false
@@ -343,6 +350,8 @@ final class OverlayView: NSView {
         anchor = nil
         selection = nil
         hovered = nil
+        window?.invalidateCursorRects(for: self)
+        currentCursor.set()
         pointerMoved(to: pointer)
     }
 
@@ -463,4 +472,40 @@ final class OverlayView: NSView {
     override func keyUp(with event: NSEvent) {
         if event.keyCode == 49 { isMovingSelection = false }
     }
+}
+
+/// The camera pointer shown while picking a window: a filled body with a light outline, so it
+/// reads on both light and dark windows.
+enum CameraCursor {
+    static let shared: NSCursor = {
+        let canvas = CGSize(width: 30, height: 30)
+        guard let symbol = NSImage(systemSymbolName: "camera.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 17, weight: .medium)) else { return .crosshair }
+        let glyph = symbol.size
+        let origin = CGPoint(x: (canvas.width - glyph.width) / 2, y: (canvas.height - glyph.height) / 2)
+
+        func tinted(_ color: NSColor) -> NSImage {
+            NSImage(size: glyph, flipped: false) { rect in
+                symbol.draw(in: rect)
+                color.set()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+        }
+        let outline = tinted(.white)
+        let body = tinted(NSColor(hex: 0x1D1D1F))
+
+        let image = NSImage(size: canvas, flipped: false) { _ in
+            // Stamp the white glyph in a ring around the centre to make an even outline.
+            let radius: CGFloat = 1.6
+            for step in 0 ..< 16 {
+                let angle = CGFloat(step) / 16 * 2 * .pi
+                outline.draw(at: CGPoint(x: origin.x + cos(angle) * radius, y: origin.y + sin(angle) * radius),
+                             from: .zero, operation: .sourceOver, fraction: 1)
+            }
+            body.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+            return true
+        }
+        return NSCursor(image: image, hotSpot: CGPoint(x: canvas.width / 2, y: canvas.height / 2))
+    }()
 }

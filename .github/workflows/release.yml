@@ -1,0 +1,88 @@
+# Push a tag such as v0.2.0 and this builds Shotput, packages it, and publishes a GitHub release
+# with the .dmg, the .zip, and their checksums. Tags with a hyphen (v0.2.0-beta.1) become
+# pre-releases. Run it by hand from the Actions tab to rebuild the assets of an existing tag.
+#
+# Optional repository secrets for a signed, notarized build that opens without a warning:
+#   DEVELOPER_ID_P12, DEVELOPER_ID_P12_PASSWORD, DEVELOPER_ID_NAME
+#   NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build, for example v0.2.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Check
+        run: |
+          swift run shotput-dev editor "$RUNNER_TEMP/editor.png"
+          swift run shotput-dev overlay "$RUNNER_TEMP/overlay.png"
+          swift run shotput-dev settings "$RUNNER_TEMP/settings.png"
+
+      - name: Import signing certificate
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        if: env.P12 != ''
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Build
+        env:
+          SHOTPUT_VERSION: ${{ env.TAG }}
+          SHOTPUT_UNIVERSAL: "1"
+          SHOTPUT_SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_NAME || '-' }}
+        run: ./Scripts/build.sh
+
+      - name: Package
+        env:
+          SHOTPUT_SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_NAME || '-' }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: ./Scripts/package.sh
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${TAG#v}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" build/Shotput-$VERSION.dmg build/Shotput-$VERSION.zip build/checksums.txt --clobber
+          else
+            FLAGS=""
+            case "$TAG" in *-*) FLAGS="--prerelease" ;; esac
+            gh release create "$TAG" $FLAGS --title "Shotput $VERSION" --generate-notes --verify-tag \
+              build/Shotput-$VERSION.dmg build/Shotput-$VERSION.zip build/checksums.txt
+          fi

@@ -18,21 +18,6 @@ public enum Tool: Int, CaseIterable {
         }
     }
 
-    var symbol: String {
-        switch self {
-        case .arrow: "arrow.up.right"
-        case .line: "line.diagonal"
-        case .rectangle: "rectangle"
-        case .ellipse: "circle"
-        case .text: "textformat"
-        case .counter: "1.circle"
-        case .pen: "scribble"
-        case .highlight: "highlighter"
-        case .redact: "checkerboard.rectangle"
-        case .crop: "crop"
-        }
-    }
-
     /// Single-key shortcut while the editor has focus.
     var key: Character {
         switch self {

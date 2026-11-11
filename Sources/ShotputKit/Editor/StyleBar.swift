@@ -39,7 +39,7 @@ struct StyleBar: View {
                 divider
 
                 BarButton(
-                    symbol: model.filled ? "square.fill" : "square",
+                    icon: model.filled ? .fill : .unfilled,
                     label: model.styleTool == .redact ? "Solid block" : "Fill",
                     isSelected: model.filled
                 ) { model.setFilled(!model.filled) }
@@ -49,10 +49,10 @@ struct StyleBar: View {
                 divider
 
                 HStack(spacing: 2) {
-                    BarButton(symbol: "arrow.uturn.backward", label: "Undo", isSelected: false) { model.undo() }
+                    BarButton(icon: .undo, label: "Undo", isSelected: false) { model.undo() }
                         .disabled(!model.canUndo)
                         .opacity(model.canUndo ? 1 : 0.35)
-                    BarButton(symbol: "arrow.uturn.forward", label: "Redo", isSelected: false) { model.redo() }
+                    BarButton(icon: .redo, label: "Redo", isSelected: false) { model.redo() }
                         .disabled(!model.canRedo)
                         .opacity(model.canRedo ? 1 : 0.35)
                 }
@@ -125,15 +125,14 @@ private struct WeightButton: View {
 }
 
 private struct BarButton: View {
-    let symbol: String
+    let icon: Icon
     let label: String
     let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
+            icon.view(size: 13, weight: .medium)
                 .foregroundStyle(isSelected ? Palette.accent.color : Palette.ink.color)
                 .frame(width: 30, height: 24)
                 .background(

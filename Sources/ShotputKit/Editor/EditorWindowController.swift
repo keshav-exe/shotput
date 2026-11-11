@@ -1,11 +1,11 @@
 import AppKit
 import Combine
 import SwiftUI
-import Vision
 
 private extension NSToolbarItem.Identifier {
     static let tools = NSToolbarItem.Identifier("tools")
     static let recognizeText = NSToolbarItem.Identifier("recognizeText")
+    static let background = NSToolbarItem.Identifier("background")
     static let save = NSToolbarItem.Identifier("save")
     static let copy = NSToolbarItem.Identifier("copy")
     static let done = NSToolbarItem.Identifier("done")
@@ -23,13 +23,21 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     let model: EditorModel
     let canvas: CanvasView
     private let scrollView = NSScrollView()
-    private var toolGroup: NSToolbarItemGroup?
+    private var toolPicker: NSSegmentedControl?
+    private var backgroundButton: NSButton?
+    private lazy var backdropControls: BackdropControls = {
+        let controls = BackdropControls(current: model.backdrop?.style)
+        controls.onChange = { [weak self] style, continuing in self?.applyBackdrop(style, continuing: continuing) }
+        return controls
+    }()
+    private var wallpaper: CGImage?
     private var fitsWindow = true
     private var subscriptions = Set<AnyCancellable>()
 
     init(capture: Capture) {
         self.capture = capture
         model = EditorModel(base: capture.image, scale: capture.scale)
+        if let framed = capture.backdrop { model.adoptBackdrop(plain: framed.plain, style: framed.style) }
         canvas = CanvasView(model: model)
 
         let window = NSWindow(
@@ -55,9 +63,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
         buildContent(in: window)
         canvas.onDone = { [weak self] in self?.done(nil) }
+        canvas.onEscape = { [weak self] in
+            guard let self else { return }
+            Settings.shared.escapeInEditor == .copy ? self.done(nil) : self.close()
+        }
 
         model.$tool
-            .sink { [weak self] tool in self?.toolGroup?.selectedIndex = tool.rawValue }
+            .sink { [weak self] tool in self?.toolPicker?.selectedSegment = tool.rawValue }
             .store(in: &subscriptions)
         NotificationCenter.default.addObserver(
             self, selector: #selector(userMagnified), name: NSScrollView.didEndLiveMagnifyNotification, object: scrollView
@@ -166,7 +178,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     // MARK: Toolbar
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.tools, .flexibleSpace, .recognizeText, .save, .copy, .done]
+        [.tools, .flexibleSpace, .background, .recognizeText, .save, .copy, .done]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -178,32 +190,43 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     ) -> NSToolbarItem? {
         switch identifier {
         case .tools:
-            let group = NSToolbarItemGroup(
-                itemIdentifier: identifier,
-                images: Tool.allCases.map { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: $0.title) ?? NSImage() },
-                selectionMode: .selectOne,
-                labels: Tool.allCases.map(\.title),
-                target: self, action: #selector(toolPicked(_:))
+            // A segmented control rather than an item group: group subitems never show their
+            // tooltips, and every tool needs one to say what it is and which key picks it.
+            let picker = NSSegmentedControl(
+                images: Tool.allCases.map { $0.icon.plain(label: $0.title) },
+                trackingMode: .selectOne, target: self, action: #selector(toolPicked(_:))
             )
-            for (tool, item) in zip(Tool.allCases, group.subitems) {
-                item.toolTip = "\(tool.title) (\(String(tool.key).uppercased()))"
+            picker.segmentStyle = .automatic
+            for tool in Tool.allCases {
+                picker.setToolTip("\(tool.title)  \(String(tool.key).uppercased())", forSegment: tool.rawValue)
+                picker.setWidth(32, forSegment: tool.rawValue)
             }
-            group.selectedIndex = model.tool.rawValue
-            group.label = "Tools"
-            toolGroup = group
-            return group
+            picker.selectedSegment = model.tool.rawValue
+            picker.setAccessibilityLabel("Tools")
+            toolPicker = picker
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            item.view = picker
+            item.label = "Tools"
+            item.toolTip = "Annotation tools"
+            return item
+        case .background:
+            let item = button(identifier, "Background", .background, #selector(showBackground(_:)),
+                              tip: "Background: put the screenshot on your wallpaper or a colour")
+            backgroundButton = item.view as? NSButton
+            return item
         case .recognizeText:
-            return button(identifier, "Copy text", "text.viewfinder", #selector(copyRecognizedText(_:)),
-                          tip: "Copy the text in this screenshot")
+            return button(identifier, "Copy text", .readText, #selector(copyRecognizedText(_:)),
+                          tip: "Copy text: reads the text in this screenshot and copies it")
         case .save:
-            return button(identifier, "Save", "square.and.arrow.down", #selector(saveDocument(_:)), tip: "Save (⌘S)")
+            return button(identifier, "Save", .save, #selector(saveDocument(_:)), tip: "Save  ⌘S")
         case .copy:
-            return button(identifier, "Copy", "doc.on.doc", #selector(copy(_:)), tip: "Copy (⌘C)")
+            return button(identifier, "Copy", .copy, #selector(copy(_:)),
+                          tip: Settings.shared.editorClosesOnCopy ? "Copy and close  ⌘C" : "Copy image  ⌘C")
         case .done:
             let item = NSToolbarItem(itemIdentifier: identifier)
             item.title = "Done"
             item.label = "Done"
-            item.toolTip = "Copy and close (Return)"
+            item.toolTip = "Copy and close  Return"
             item.style = .prominent
             item.target = self
             item.action = #selector(done(_:))
@@ -213,21 +236,24 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         }
     }
 
+    /// A toolbar button backed by a real NSButton, so its tooltip shows reliably on hover.
     private func button(
-        _ identifier: NSToolbarItem.Identifier, _ label: String, _ symbol: String, _ action: Selector, tip: String
+        _ identifier: NSToolbarItem.Identifier, _ label: String, _ icon: Icon, _ action: Selector, tip: String
     ) -> NSToolbarItem {
         let item = NSToolbarItem(itemIdentifier: identifier)
+        let image = icon.plain(label: label)
+        let button = NSButton(image: image, target: self, action: action)
+        button.bezelStyle = .toolbar
+        button.toolTip = tip
+        button.setAccessibilityLabel(label)
+        item.view = button
         item.label = label
         item.toolTip = tip
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        item.isBordered = true
-        item.target = self
-        item.action = action
         return item
     }
 
-    @objc private func toolPicked(_ sender: NSToolbarItemGroup) {
-        guard let tool = Tool(rawValue: sender.selectedIndex) else { return }
+    @objc private func toolPicked(_ sender: NSSegmentedControl) {
+        guard let tool = Tool(rawValue: sender.selectedSegment) else { return }
         canvas.commitText()
         model.setTool(tool)
         window?.makeFirstResponder(canvas)
@@ -246,13 +272,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private func commitToCapture() -> Data? {
         guard let image = flattened() else { return nil }
         capture.replaceImage(image)
+        // The marks are now part of the pixels, so the unframed original no longer matches.
+        capture.backdrop = nil
         return capture.png()?.data
     }
 
     @objc func copy(_ sender: Any?) {
         guard let png = commitToCapture() else { return }
         Output.copyToClipboard(png)
-        model.showToast("Copied")
+        if Settings.shared.editorClosesOnCopy {
+            close()
+        } else {
+            model.showToast("Copied")
+        }
     }
 
     @objc func done(_ sender: Any?) {
@@ -261,8 +293,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     }
 
     @objc func saveDocument(_ sender: Any?) {
-        guard let png = commitToCapture() else { return }
-        Output.save(png, named: ImageCoding.timestampedName(for: capture.date), relativeTo: window) { [weak self] url in
+        guard commitToCapture() != nil, let file = capture.fileData() else { return }
+        Output.save(file, relativeTo: window) { [weak self] url in
             if let url { self?.model.showToast("Saved to \(url.deletingLastPathComponent().lastPathComponent)") }
         }
     }
@@ -281,23 +313,41 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         fitsWindow = false
     }
 
+    // MARK: Background
+
+    @objc func showBackground(_ sender: Any?) {
+        guard let anchor = backgroundButton ?? window?.contentView else { return }
+        backdropControls.sync(model.backdrop?.style)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: BackdropPicker(controls: backdropControls))
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+    }
+
+    private func applyBackdrop(_ style: Backdrop.Style?, continuing: Bool) {
+        canvas.commitText()
+        let needsWallpaper = style?.fill == .wallpaper && wallpaper == nil
+        guard needsWallpaper else {
+            model.setBackdrop(style, wallpaper: wallpaper, coalesce: continuing)
+            if fitsWindow { zoomToFit() }
+            return
+        }
+        Task { @MainActor in
+            wallpaper = await Backdrop.wallpaper(for: capture.screen)
+            model.setBackdrop(style, wallpaper: wallpaper, coalesce: continuing)
+            if fitsWindow { zoomToFit() }
+        }
+    }
+
     /// Reads the text in the screenshot on this Mac and copies it.
     @objc func copyRecognizedText(_ sender: Any?) {
-        let image = model.base
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            try? VNImageRequestHandler(cgImage: image).perform([request])
-            let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if lines.isEmpty {
-                    self.model.showToast("No text found")
-                } else {
-                    Output.copyToClipboard(text: lines.joined(separator: "\n"))
-                    self.model.showToast(lines.count == 1 ? "Copied 1 line of text" : "Copied \(lines.count) lines of text")
-                }
+        TextRecognizer.recognize(model.base) { [weak self] text, lines in
+            guard let self else { return }
+            if let text {
+                Output.copyToClipboard(text: text)
+                self.model.showToast(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
+            } else {
+                self.model.showToast("No text found")
             }
         }
     }

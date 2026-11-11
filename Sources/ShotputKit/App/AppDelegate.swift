@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Shotput lives in the menu bar. While an editor or the settings window is open it joins the
@@ -22,22 +23,61 @@ final class AppPresence {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
+    private static let resumeKey = "onboardingResumeStep"
+
     private var statusItem: NSStatusItem?
-    private var settingsWindow: NSWindow?
+    private var settingsController: SettingsWindowController?
+    private var onboarding: OnboardingWindowController?
+    private var subscriptions = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Output.purgeTemporaryFiles()
         NSApp.mainMenu = MainMenu.build()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "viewfinder", accessibilityDescription: "Shotput")
+        item.button?.image = Icon.capture.plain(label: "Shotput")
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
         statusItem = item
+        Settings.shared.$showsMenuBarIcon
+            .sink { [weak item] visible in item?.isVisible = visible }
+            .store(in: &subscriptions)
+        // Covers every path that changes shortcuts, including Reset, wherever it happens.
+        Settings.shared.$shortcuts
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { _ in HotKeyCenter.reload() }
+            .store(in: &subscriptions)
+
+        NotificationCenter.default.publisher(for: .shotputDidCapture)
+            .sink { [weak self] _ in self?.pulseMenuBarIcon() }
+            .store(in: &subscriptions)
 
         HotKeyCenter.reload()
-        if Settings.shared.consumeFirstLaunch() { showSettings(nil) }
+
+        let defaults = UserDefaults.standard
+        if Settings.shared.consumeFirstLaunch() {
+            showOnboarding(.welcome)
+        } else if defaults.object(forKey: Self.resumeKey) != nil {
+            // Reopened after allowing Screen Recording from the welcome guide.
+            let step = OnboardingWindowController.Step(rawValue: defaults.integer(forKey: Self.resumeKey)) ?? .permission
+            defaults.removeObject(forKey: Self.resumeKey)
+            showOnboarding(step)
+        }
+    }
+
+    /// The menu bar icon blinks like a shutter on each capture. It is the only feedback when
+    /// Settings says to copy quietly.
+    private func pulseMenuBarIcon() {
+        guard let button = statusItem?.button, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        button.alphaValue = 0.25
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.35
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            button.animator().alphaValue = 1
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -63,11 +103,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     /// commands that put interactive UI on screen are exposed. A silent full-screen capture is
     /// not, because any app can open a link and could use that to read the screen.
     private func handle(command: String) {
+        guard Settings.shared.allowsLinks || command == "settings" else { return }
         switch command {
         case "area": HotAction.area.perform()
         case "annotate": HotAction.areaAnnotate.perform()
         case "window": HotAction.window.perform()
         case "last": HotAction.annotateLast.perform()
+        case "text": HotAction.text.perform()
+        case "clipboard": HotAction.annotateClipboard.perform()
         case "settings": showSettings(nil)
         default: break
         }
@@ -82,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         func add(_ action: HotAction, _ selector: Selector) {
             let item = menu.addItem(withTitle: action.title, action: selector, keyEquivalent: "")
             item.target = self
+            item.image = action.icon.plain()
             if let shortcut = shortcuts[action], shortcut.isSet, shortcut.keyName.count == 1 {
                 item.keyEquivalent = shortcut.keyName.lowercased()
                 item.keyEquivalentModifierMask = shortcut.flags
@@ -92,11 +136,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         add(.areaAnnotate, #selector(captureAreaAndAnnotate))
         add(.window, #selector(captureWindow))
         add(.screen, #selector(captureScreen))
+        add(.repeatArea, #selector(repeatArea))
+        add(.text, #selector(copyText))
         menu.addItem(.separator())
         add(.annotateLast, #selector(annotateLast))
-        menu.addItem(withTitle: "Annotate clipboard image", action: #selector(annotateClipboard), keyEquivalent: "").target = self
+        add(.annotateClipboard, #selector(annotateClipboard))
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",").target = self
+        let guide = menu.addItem(withTitle: "Welcome Guide…", action: #selector(openWelcomeGuide(_:)), keyEquivalent: "")
+        guide.target = self
+        guide.image = Icon.info.plain()
+        let settings = menu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
+        settings.target = self
+        settings.image = Icon.settings.plain()
         menu.addItem(withTitle: "Quit Shotput", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
@@ -111,27 +162,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func captureWindow() { HotAction.window.perform() }
     @objc private func captureScreen() { HotAction.screen.perform() }
     @objc private func annotateLast() { HotAction.annotateLast.perform() }
+    @objc private func repeatArea() { HotAction.repeatArea.perform() }
+    @objc private func copyText() { HotAction.text.perform() }
     @objc private func annotateClipboard() { CaptureCoordinator.shared.annotateClipboard() }
 
-    // MARK: Settings
+    // MARK: Settings and the welcome guide
 
     @objc func showSettings(_ sender: Any?) {
-        if settingsWindow == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
-            window.title = "Shotput Settings"
-            window.styleMask = [.titled, .closable]
-            window.isReleasedWhenClosed = false
-            window.delegate = self
-            window.center()
-            settingsWindow = window
-        }
-        if settingsWindow?.isVisible == false { AppPresence.shared.windowDidOpen() }
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        showSettings(pane: nil)
+    }
+
+    func showSettings(pane: SettingsWindowController.Pane?) {
+        let controller = settingsController ?? {
+            let controller = SettingsWindowController()
+            controller.window?.delegate = self
+            settingsController = controller
+            return controller
+        }()
+        if let pane { controller.select(pane) }
+        if controller.window?.isVisible == false { AppPresence.shared.windowDidOpen() }
+        controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc func openWelcomeGuide(_ sender: Any?) {
+        showOnboarding(.welcome)
+    }
+
+    func showOnboarding(_ step: OnboardingWindowController.Step) {
+        let controller = onboarding ?? {
+            let controller = OnboardingWindowController(start: step)
+            controller.onClose = { [weak self] in
+                UserDefaults.standard.removeObject(forKey: Self.resumeKey)
+                DispatchQueue.main.async { self?.onboarding = nil }
+            }
+            onboarding = controller
+            return controller
+        }()
+        controller.show(step)
+    }
+
     func windowWillClose(_ notification: Notification) {
-        if notification.object as? NSWindow === settingsWindow { AppPresence.shared.windowDidClose() }
+        if notification.object as? NSWindow === settingsController?.window { AppPresence.shared.windowDidClose() }
     }
 }
 

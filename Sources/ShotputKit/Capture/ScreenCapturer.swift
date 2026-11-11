@@ -34,6 +34,7 @@ struct DisplayShot {
 struct WindowInfo {
     let id: CGWindowID
     let frame: CGRect
+    var ownerName: String? = nil
 }
 
 @MainActor
@@ -43,7 +44,7 @@ enum ScreenCapturer {
     }
 
     /// Stills of every display, or of one. Shotput's own windows are left out.
-    static func captureDisplays(_ content: SCShareableContent, only: NSScreen? = nil) async throws -> [DisplayShot] {
+    static func captureDisplays(_ content: SCShareableContent, only: NSScreen? = nil, showsCursor: Bool = false) async throws -> [DisplayShot] {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let own = content.applications.filter { $0.processID == ownPID }
         var shots: [DisplayShot] = []
@@ -55,7 +56,7 @@ enum ScreenCapturer {
             let configuration = SCStreamConfiguration()
             configuration.width = Int(CGFloat(display.width) * scale)
             configuration.height = Int(CGFloat(display.height) * scale)
-            configuration.showsCursor = false
+            configuration.showsCursor = showsCursor
             configuration.captureResolution = .best
             configuration.colorSpaceName = CGColorSpace.sRGB
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
@@ -65,7 +66,9 @@ enum ScreenCapturer {
     }
 
     /// One window on its own, with transparent corners and nothing overlapping it.
-    static func captureWindow(_ id: CGWindowID, in content: SCShareableContent) async throws -> (image: CGImage, scale: CGFloat)? {
+    static func captureWindow(
+        _ id: CGWindowID, in content: SCShareableContent, includesShadow: Bool = false
+    ) async throws -> (image: CGImage, scale: CGFloat)? {
         guard let window = content.windows.first(where: { $0.windowID == id }) else { return nil }
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let scale = CGFloat(filter.pointPixelScale)
@@ -74,7 +77,7 @@ enum ScreenCapturer {
         configuration.height = Int(filter.contentRect.height * scale)
         configuration.showsCursor = false
         configuration.captureResolution = .best
-        configuration.ignoreShadowsSingleWindow = true
+        configuration.ignoreShadowsSingleWindow = !includesShadow
         configuration.colorSpaceName = CGColorSpace.sRGB
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
         return (image, scale)
@@ -98,7 +101,7 @@ enum ScreenCapturer {
             // Core Graphics measures from the top of the primary display, Cocoa from its bottom.
             return WindowInfo(id: id, frame: CGRect(
                 x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height
-            ))
+            ), ownerName: info[kCGWindowOwnerName as String] as? String)
         }
     }
 }

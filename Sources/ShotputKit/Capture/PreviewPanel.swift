@@ -38,22 +38,28 @@ final class PreviewPanelController {
         }
         view.onSave = { [weak self] in
             self?.dismiss()
-            guard let png = capture.png() else { return }
-            Output.save(png.data, named: ImageCoding.timestampedName(for: capture.date), relativeTo: nil) { _ in }
+            guard let file = capture.fileData() else { return }
+            Output.save(file, relativeTo: nil) { _ in }
         }
         view.onClose = { [weak self] in self?.dismiss() }
         panel.contentView = view
         self.panel = panel
 
-        // Slide in from the nearest screen edge.
+        // The thumbnail leaves from where the capture was taken and settles in its corner, so
+        // it is clear where the screenshot went. Without a known origin it slides in from the edge.
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let fromLeft = frame.midX < (capture.screen ?? NSScreen.underMouse)?.frame.midX ?? 0
+        var start = frame.offsetBy(dx: fromLeft ? -16 : 16, dy: 0)
+        if let origin = capture.screenRect, !origin.intersects(frame) {
+            start = CGRect(x: origin.midX - frame.width / 2, y: origin.midY - frame.height / 2, width: frame.width, height: frame.height)
+        }
         panel.alphaValue = 0
-        panel.setFrame(reduceMotion ? frame : frame.offsetBy(dx: fromLeft ? -16 : 16, dy: 0), display: true)
+        panel.setFrame(reduceMotion ? frame : start, display: true)
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.duration = start.center.distance(to: frame.center) > 120 ? 0.42 : 0.25
+            // Quick out of the gate, gentle landing.
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
             panel.animator().alphaValue = 1
             panel.animator().setFrame(frame, display: true)
         }
@@ -154,10 +160,10 @@ private final class PreviewView: NSView, NSDraggingSource {
         buttons.spacing = 6
         buttons.alphaValue = 0
         buttons.translatesAutoresizingMaskIntoConstraints = false
-        buttons.addArrangedSubview(button("pencil.tip.crop.circle", "Annotate", #selector(annotate)))
-        buttons.addArrangedSubview(button("doc.on.doc", "Copy again", #selector(copyAgain)))
-        buttons.addArrangedSubview(button("square.and.arrow.down", "Save", #selector(save)))
-        buttons.addArrangedSubview(button("xmark", "Dismiss", #selector(close)))
+        buttons.addArrangedSubview(button(.annotate, "Annotate", #selector(annotate)))
+        buttons.addArrangedSubview(button(.copy, "Copy again", #selector(copyAgain)))
+        buttons.addArrangedSubview(button(.save, "Save", #selector(save)))
+        buttons.addArrangedSubview(button(.close, "Dismiss", #selector(close)))
         addSubview(buttons)
         NSLayoutConstraint.activate([
             buttons.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -173,9 +179,8 @@ private final class PreviewView: NSView, NSDraggingSource {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    private func button(_ symbol: String, _ label: String, _ action: Selector) -> NSButton {
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)) ?? NSImage()
+    private func button(_ icon: Icon, _ label: String, _ action: Selector) -> NSButton {
+        let image = icon.image(size: 13, weight: .medium, label: label)
         let button = NSButton(image: image, target: self, action: action)
         button.isBordered = false
         button.contentTintColor = .white

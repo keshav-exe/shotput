@@ -7,14 +7,27 @@ into your agent. Annotate first when the picture needs a pointer.
 
 ## Install
 
-Needs macOS 26 or later and Xcode's command line tools.
+Needs macOS 26 or later.
+
+Download `Shotput-<version>.dmg` from [Releases](https://github.com/keshav-exe/shotput/releases/latest),
+open it, and drag Shotput to Applications. Release builds are not notarized yet, so the first
+time you open it macOS says it cannot check the app. Open **System Settings → Privacy &
+Security**, scroll down, and click **Open Anyway**. Or clear the flag in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Shotput.app
+```
+
+To build it yourself instead, you need Xcode's command line tools:
 
 ```bash
 ./Scripts/build.sh --install
 ```
 
-That builds `build/Shotput.app`, signs it, copies it to `/Applications`, and opens it. Shotput
-lives in the menu bar. The first capture asks for Screen Recording. Allow it, then reopen Shotput.
+That builds `build/Shotput.app`, signs it, copies it to `/Applications`, and opens it.
+
+On first launch a short welcome guide walks through Screen Recording, the shortcuts, and setting
+up a mouse button. Open it again any time from the menu bar icon.
 
 ## Use it from a Logitech mouse
 
@@ -34,12 +47,16 @@ covers every shortcut below.
 | Capture window | ⌃⌥⌘W | Click a window. You get it alone, with clean corners. |
 | Capture screen | ⌃⌥⌘S | The display under the pointer. |
 | Annotate last capture | ⌃⌥⌘E | Opens the most recent capture in the editor. |
+| Copy text from area | ⌃⌥⌘T | Drag over text and it is copied as text, read on your Mac. |
+| Repeat last area | none | Captures the same area again, with no selection. |
+| Annotate clipboard image | none | Opens the image on the clipboard in the editor. |
 
 Change any of them in Settings. Pressing a capture shortcut again while selecting backs out, so
 one button both starts and cancels.
 
 Launchers and Smart Actions can also open links: `shotput://area`, `shotput://annotate`,
-`shotput://window`, `shotput://last`, `shotput://settings`.
+`shotput://window`, `shotput://text`, `shotput://last`, `shotput://clipboard`,
+`shotput://settings`. Turn links off under Settings → General.
 
 ## Selecting
 
@@ -82,8 +99,25 @@ any background, including one of its own colour.
 Drag any mark to move it, drag its handles to reshape it, and use the arrow keys to nudge.
 Delete removes it. Undo and redo work as usual.
 
+The toolbar's **Background** button puts any screenshot on your wallpaper or a colour, with
+adjustable padding, a soft shadow, and rounded corners. Marks stay where you put them, and
+choosing None takes it off again.
+
 **Return** copies the result and closes the editor. ⌘C copies and keeps it open, and ⌘S saves.
 The toolbar can also copy the text in the screenshot, read on your Mac.
+
+## Settings
+
+Settings is split into tabs, so each page fits on a laptop screen.
+
+- **General**: open at login, show or hide the menu bar icon, capture sound, allow links, reset.
+- **Capture**: magnifier, edge snapping, selection hints, what happens after a capture, where the
+  preview appears and how long it stays, window shadow, a background for window captures (your
+  current wallpaper or a solid colour, with padding), and the pointer in screen captures.
+- **Editor**: what Esc does, whether ⌘C also closes, and how text recognition joins lines.
+- **Output**: standard resolution, save folder, save every capture, PNG, JPEG or HEIC with a
+  quality slider, and a file name template such as `%n %Y-%m-%d %H.%M.%S`.
+- **Shortcuts**: every action above, plus the mouse button guide.
 
 ## Privacy and footprint
 
@@ -104,6 +138,29 @@ swift run shotput-dev editor /tmp/editor.png
 swift run shotput-dev overlay /tmp/overlay.png
 ```
 
+```bash
+swift run shotput-dev settings /tmp/settings.png
+```
+
 These drive the editor and the selection overlay offscreen with synthetic mouse events, check
-the results, and write renders you can look at. `preview` renders every kind of mark, and
+the results, and write renders you can look at. `settings` renders every Settings tab and
+welcome step and checks that each fits on a small screen. `preview` renders every kind of mark, and
 `Scripts/make-icon.sh` rebuilds the app icon from the same renderer.
+
+## Releasing
+
+Push a version tag and GitHub Actions builds a universal app, packages a `.dmg` and `.zip` with
+checksums, and publishes the release. Tags with a hyphen, such as `v0.2.0-beta.1`, are marked
+as pre-releases.
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+To package locally, run `SHOTPUT_VERSION=0.2.0 ./Scripts/build.sh` and then `./Scripts/package.sh`.
+Builds are ad-hoc signed unless the Developer ID and notary secrets described in
+`.github/workflows/release.yml` are set, in which case they are signed and notarized.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

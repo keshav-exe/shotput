@@ -82,7 +82,7 @@ struct Shortcut: Codable, Equatable {
 
 /// Things a shortcut, a mouse button, or a URL can trigger.
 enum HotAction: String, CaseIterable, Identifiable {
-    case area, areaAnnotate, window, screen, annotateLast
+    case area, areaAnnotate, window, screen, annotateLast, repeatArea, text, annotateClipboard
 
     var id: String { rawValue }
 
@@ -93,6 +93,36 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .window: "Capture window"
         case .screen: "Capture screen"
         case .annotateLast: "Annotate last capture"
+        case .repeatArea: "Repeat last area"
+        case .text: "Copy text from area"
+        case .annotateClipboard: "Annotate clipboard image"
+        }
+    }
+
+    var icon: Icon {
+        switch self {
+        case .area: .capture
+        case .areaAnnotate: .annotate
+        case .window: .window
+        case .screen: .screen
+        case .annotateLast: .clock
+        case .repeatArea: .refresh
+        case .text: .readText
+        case .annotateClipboard: .clipboard
+        }
+    }
+
+    /// One line on what the action does, for Settings and the welcome guide.
+    var detail: String {
+        switch self {
+        case .area: "Drag an area. It is on the clipboard when you let go."
+        case .areaAnnotate: "Same, then the editor opens where you captured."
+        case .window: "Click a window to get it alone, with clean corners."
+        case .screen: "The whole display under the pointer."
+        case .annotateLast: "Opens the most recent capture in the editor."
+        case .repeatArea: "Captures the same area as last time, with no selection."
+        case .text: "Drag over any text and it is copied as text."
+        case .annotateClipboard: "Opens the image on the clipboard in the editor."
         }
     }
 
@@ -104,6 +134,8 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .window: Shortcut(keyCode: kVK_ANSI_W, hyper)
         case .screen: Shortcut(keyCode: kVK_ANSI_S, hyper)
         case .annotateLast: Shortcut(keyCode: kVK_ANSI_E, hyper)
+        case .text: Shortcut(keyCode: kVK_ANSI_T, hyper)
+        case .repeatArea, .annotateClipboard: .none
         }
     }
 
@@ -116,6 +148,9 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .window: coordinator.capture(.window)
         case .screen: coordinator.capture(.screen)
         case .annotateLast: coordinator.annotateLast()
+        case .repeatArea: coordinator.repeatLastArea()
+        case .text: coordinator.capture(.area, readText: true)
+        case .annotateClipboard: coordinator.annotateClipboard()
         }
     }
 }

@@ -3,6 +3,7 @@
 //   shotput-dev icon out.png      the 1024pt app icon, drawn with the product's own renderer
 //   shotput-dev editor out.png    offscreen editor checks, plus a render of the window
 //   shotput-dev overlay out.png   offscreen selection-overlay checks, plus renders
+//   shotput-dev settings out.png  renders every Settings tab and welcome step, checks they fit
 import AppKit
 import ShotputKit
 
@@ -127,11 +128,14 @@ func icon(to path: String) {
         }
     }
 
-    // The arrow comes from the real renderer, scaled up, so the icon matches the product.
+    // The arrow comes from the real renderer, scaled up, so the icon matches the product. Its tip
+    // sits where the fourth corner mark would be, and it runs back along the diagonal toward the
+    // centre, so the mark is symmetrical about that diagonal.
     let unit: CGFloat = 10
-    let arrow = Annotation(
-        kind: .arrow(from: CGPoint(x: 37, y: 67), to: CGPoint(x: 73, y: 31)), color: .blue, weight: .heavy
-    )
+    let length = 32.0
+    let tip = CGPoint(x: 73.4, y: 29.0)
+    let tail = CGPoint(x: tip.x - length / 2.squareRoot(), y: tip.y + length / 2.squareRoot())
+    let arrow = Annotation(kind: .arrow(from: tail, to: tip), color: .blue, weight: .heavy)
     guard let out = AnnotationRenderer().flatten(base: base, scale: unit, annotations: [arrow], outputScale: unit) else {
         fatalError("flatten failed")
     }
@@ -148,6 +152,7 @@ case "preview": preview(to: arguments[2])
 case "icon": icon(to: arguments[2])
 case "editor": MainActor.assumeIsolated { editorHarness(to: arguments[2]) }
 case "overlay": MainActor.assumeIsolated { overlayHarness(to: arguments[2]) }
+case "settings": MainActor.assumeIsolated { settingsHarness(to: arguments[2]) }
 default:
     print("unknown command \(arguments[1])")
     exit(2)

@@ -15,6 +15,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     let model: EditorModel
     var onDone: (() -> Void)?
+    /// Esc with nothing left to clear.
+    var onEscape: (() -> Void)?
 
     private let renderer = AnnotationRenderer()
     private let baseView = NSView()
@@ -318,6 +320,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case 51, 117:
             model.deleteSelected()
         case 53:
+            if cropRect == nil, model.selectedID == nil {
+                onEscape?()
+                return
+            }
             cropRect = nil
             model.selectedID = nil
             marks.needsDisplay = true

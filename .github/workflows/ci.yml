@@ -1,0 +1,18 @@
+# Builds and runs the offscreen checks on every push and pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build
+      - run: swift run shotput-dev editor "$RUNNER_TEMP/editor.png"
+      - run: swift run shotput-dev overlay "$RUNNER_TEMP/overlay.png"
+      - run: swift run shotput-dev settings "$RUNNER_TEMP/settings.png"
+      - run: SHOTPUT_SIGN_IDENTITY=- ./Scripts/build.sh

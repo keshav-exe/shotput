@@ -2,3 +2,5 @@
 build/
 .swiftpm/
 .DS_Store
+# Rendered videos live in LaunchFilm/out and are published elsewhere, not in the repo.
+docs/*.mp4

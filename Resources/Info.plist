@@ -61,5 +61,15 @@
 	<string>Copyright © 2026 keshav-exe. MIT licence.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/keshav-exe/shotput/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>qs5PNax49PHAtkokLczzGYm2F2xIQV1NR+eTJRSySys=</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUEnableDownloaderService</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
 </dict>
 </plist>

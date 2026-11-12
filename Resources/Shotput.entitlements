@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Sandboxed with no network entitlement: macOS itself stops Shotput from sending anything anywhere. -->
+	<!-- Sandboxed with no network entitlement: macOS itself stops Shotput from sending anything anywhere.
+	     Updates are fetched by Sparkle's own Downloader service, which has network access and nothing else. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<!-- Write only to files and folders chosen in a save or open panel. -->
@@ -11,5 +12,22 @@
 	<!-- Remember the chosen save folder between launches. -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
+	<!-- Read where macOS saves screenshots, and turn its floating thumbnail off and back on, for
+	     the option that gives macOS screenshots Shotput's preview. Nothing else in that domain. -->
+	<key>com.apple.security.temporary-exception.shared-preference.read-write</key>
+	<array>
+		<string>com.apple.screencapture</string>
+	</array>
+	<!-- Read whether macOS still owns ⇧⌘3, ⇧⌘4 and ⇧⌘5, so Settings can say so. Read only. -->
+	<key>com.apple.security.temporary-exception.shared-preference.read-only</key>
+	<array>
+		<string>com.apple.symbolichotkeys</string>
+	</array>
+	<!-- Talk to Sparkle's installer and downloader services, which update the app from outside the sandbox. -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>app.shotput.Shotput-spks</string>
+		<string>app.shotput.Shotput-spki</string>
+	</array>
 </dict>
 </plist>

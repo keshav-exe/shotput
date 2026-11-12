@@ -1,6 +1,7 @@
 #!/bin/bash
 # Cuts a release from this Mac: universal build, Developer ID signature, notarization, and a
-# GitHub release with the .dmg, .zip, and checksums.
+# GitHub release with the .dmg, .zip, checksums, update feed, and the
+# curl install script.
 #
 #   Scripts/release.sh 0.2.0
 #
@@ -28,13 +29,23 @@ swift run shotput-dev settings "$(mktemp -d)/settings.png" >/dev/null
 SHOTPUT_VERSION="$VERSION" SHOTPUT_UNIVERSAL=1 ./Scripts/build.sh
 ./Scripts/package.sh
 
+# The update feed. Signed with the EdDSA key in this Mac's keychain (made once with Sparkle's
+# generate_keys --account shotput); the app only installs updates that key signed.
+FEED_DIR="$(mktemp -d)"
+cp "build/Shotput-$VERSION.zip" "$FEED_DIR/"
+.build/artifacts/sparkle/Sparkle/bin/generate_appcast --account shotput \
+    --download-url-prefix "https://github.com/keshav-exe/shotput/releases/download/$TAG/" \
+    --full-release-notes-url "https://github.com/keshav-exe/shotput/releases/tag/$TAG" \
+    -o build/appcast.xml "$FEED_DIR"
+
 git rev-parse "$TAG" >/dev/null 2>&1 || git tag -a "$TAG" -m "Shotput $VERSION"
 git push origin "$TAG"
 FLAGS=()
 case "$TAG" in *-*) FLAGS=(--prerelease) ;; esac
 if gh release view "$TAG" >/dev/null 2>&1; then
-    gh release upload "$TAG" "build/Shotput-$VERSION.dmg" "build/Shotput-$VERSION.zip" build/checksums.txt --clobber
+    gh release upload "$TAG" "build/Shotput-$VERSION.dmg" "build/Shotput-$VERSION.zip" build/checksums.txt build/appcast.xml Scripts/install.sh --clobber
 else
     gh release create "$TAG" ${FLAGS[@]+"${FLAGS[@]}"} --title "Shotput $VERSION" --generate-notes --verify-tag \
-        "build/Shotput-$VERSION.dmg" "build/Shotput-$VERSION.zip" build/checksums.txt
+        "build/Shotput-$VERSION.dmg" "build/Shotput-$VERSION.zip" build/checksums.txt build/appcast.xml Scripts/install.sh
 fi
+

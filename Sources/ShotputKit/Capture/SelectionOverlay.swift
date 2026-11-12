@@ -99,6 +99,9 @@ final class OverlayView: NSView {
     private let badge = CALayer()
     private let badgeText = CATextLayer()
     private let hint = CALayer()
+    /// Rides beside the pointer while picking a window: what to do next.
+    private let pointerTag = CALayer()
+    private let pointerTagText = CATextLayer()
 
     private var anchor: CGPoint?
     private var selection: CGRect?
@@ -132,8 +135,8 @@ final class OverlayView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func resetCursorRects() { addCursorRect(bounds, cursor: currentCursor) }
 
-    /// A camera over windows, as the system screenshot tool does, and a crosshair for areas.
-    private var currentCursor: NSCursor { overlay.mode == .window ? CameraCursor.shared : .crosshair }
+    /// A pointing hand over windows, since a window is picked with a click, and a crosshair for areas.
+    private var currentCursor: NSCursor { overlay.mode == .window ? .pointingHand : .crosshair }
 
     // MARK: Layers
 
@@ -204,6 +207,20 @@ final class OverlayView: NSView {
         badge.isHidden = true
         root.addSublayer(badge)
 
+        pointerTag.backgroundColor = NSColor(hex: 0x191917, alpha: 0.86).cgColor
+        pointerTag.cornerRadius = 8
+        pointerTag.cornerCurve = .continuous
+        pointerTag.borderWidth = 1
+        pointerTag.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        pointerTagText.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        pointerTagText.fontSize = 12
+        pointerTagText.foregroundColor = NSColor.white.cgColor
+        pointerTagText.alignmentMode = .center
+        pointerTagText.contentsScale = scale
+        pointerTag.addSublayer(pointerTagText)
+        pointerTag.isHidden = true
+        root.addSublayer(pointerTag)
+
         if showHint {
             let text = CATextLayer()
             let string = "Drag to capture an area. Space picks a window. Esc cancels."
@@ -252,16 +269,22 @@ final class OverlayView: NSView {
 
             if overlay.mode == .window, let hovered {
                 cutout = hovered.frame.intersection(bounds)
-                radius = 10
-                outline.strokeColor = Palette.accent.cgColor
-                outline.lineWidth = 2
-                // A light wash of the accent, so the window reads as picked up rather than outlined.
-                outline.fillColor = Palette.accent.cgColor.copy(alpha: 0.12)
+                radius = 12
+                // A bright ring that hugs the window with a soft glow, over a faint wash, so the
+                // window reads as lifted rather than boxed.
+                outline.strokeColor = NSColor.white.cgColor
+                outline.lineWidth = 3
+                outline.fillColor = Palette.accent.cgColor.copy(alpha: 0.08)
+                outline.shadowColor = NSColor.white.cgColor
+                outline.shadowOpacity = 0.55
+                outline.shadowRadius = 8
+                outline.shadowOffset = .zero
             } else if overlay.mode == .area, let selection, selection.width > 0, selection.height > 0 {
                 cutout = selection
                 outline.strokeColor = NSColor.white.cgColor
                 outline.lineWidth = 1
                 outline.fillColor = nil
+                outline.shadowOpacity = 0
             }
 
             if let cutout, !cutout.isNull {
@@ -274,7 +297,30 @@ final class OverlayView: NSView {
                 badge.isHidden = true
             }
             dim.path = path
+            updatePointerTag()
         }
+    }
+
+    private func updatePointerTag() {
+        guard overlay.mode == .window, bounds.contains(pointer) else {
+            pointerTag.isHidden = true
+            return
+        }
+        let string = hovered == nil ? "Move to a window" : "Click to capture"
+        if pointerTagText.string as? String != string {
+            let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+            let width = ceil((string as NSString).size(withAttributes: [.font: font]).width) + 20
+            pointerTag.bounds = CGRect(x: 0, y: 0, width: width, height: 26)
+            pointerTagText.frame = CGRect(x: 0, y: 5, width: width, height: 16)
+            pointerTagText.string = string
+        }
+        // Below and right of the hand, clear of the fingertip, kept on screen.
+        let size = pointerTag.bounds.size
+        var origin = CGPoint(x: pointer.x + 10, y: pointer.y - 30 - size.height)
+        if origin.x + size.width > bounds.width - 4 { origin.x = pointer.x - 10 - size.width }
+        if origin.y < 4 { origin.y = pointer.y + 24 }
+        pointerTag.frame = CGRect(origin: origin, size: size)
+        pointerTag.isHidden = false
     }
 
     private func showBadge(for rect: CGRect, name: String? = nil) {
@@ -474,38 +520,3 @@ final class OverlayView: NSView {
     }
 }
 
-/// The camera pointer shown while picking a window: a filled body with a light outline, so it
-/// reads on both light and dark windows.
-enum CameraCursor {
-    static let shared: NSCursor = {
-        let canvas = CGSize(width: 30, height: 30)
-        guard let symbol = NSImage(systemSymbolName: "camera.fill", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 17, weight: .medium)) else { return .crosshair }
-        let glyph = symbol.size
-        let origin = CGPoint(x: (canvas.width - glyph.width) / 2, y: (canvas.height - glyph.height) / 2)
-
-        func tinted(_ color: NSColor) -> NSImage {
-            NSImage(size: glyph, flipped: false) { rect in
-                symbol.draw(in: rect)
-                color.set()
-                rect.fill(using: .sourceAtop)
-                return true
-            }
-        }
-        let outline = tinted(.white)
-        let body = tinted(NSColor(hex: 0x1D1D1F))
-
-        let image = NSImage(size: canvas, flipped: false) { _ in
-            // Stamp the white glyph in a ring around the centre to make an even outline.
-            let radius: CGFloat = 1.6
-            for step in 0 ..< 16 {
-                let angle = CGFloat(step) / 16 * 2 * .pi
-                outline.draw(at: CGPoint(x: origin.x + cos(angle) * radius, y: origin.y + sin(angle) * radius),
-                             from: .zero, operation: .sourceOver, fraction: 1)
-            }
-            body.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
-            return true
-        }
-        return NSCursor(image: image, hotSpot: CGPoint(x: canvas.width / 2, y: canvas.height / 2))
-    }()
-}

@@ -1,15 +1,26 @@
 import AppKit
 
-/// One pinned capture. Click copies, Option-click annotates, dragging drops the file into any
-/// app, and the corner button unpins.
+/// One pinned capture. What a click does is the tray's call, since it depends on whether pins
+/// are being picked. Dragging drops the file, or every picked file, into any app.
 @MainActor
 final class PinCell: NSView, NSDraggingSource {
-    var onDone: (() -> Void)?
-    private let pin: PinStore.Pin
+    let pin: PinStore.Pin
+    /// A click that wasn't a drag, with the modifiers held.
+    var onClick: ((NSEvent.ModifierFlags) -> Void)?
+    /// The pins a drag from this cell carries: the picked ones when this is one of them.
+    var dragPins: (() -> [PinStore.Pin])?
+    var onDragEnded: (() -> Void)?
+
+    var isSelected = false {
+        didSet { if isSelected != oldValue { updateChrome() } }
+    }
+
     private let ring = CALayer()
     private let remove: NSButton
+    private let tick = NSImageView()
     private var downAt: CGPoint?
     private var dragged = false
+    private var isHovered = false
 
     init(pin: PinStore.Pin, frame: CGRect) {
         self.pin = pin
@@ -27,25 +38,41 @@ final class PinCell: NSView, NSDraggingSource {
         ring.frame = bounds
         ring.cornerRadius = 10
         ring.cornerCurve = .continuous
-        ring.borderWidth = 0.5
-        ring.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
         layer.addSublayer(ring)
 
         remove.target = self
-        remove.isHidden = true
         addSubview(remove)
+
+        // A filled tick in the corner marks a picked pin, as Photos and Finder do.
+        tick.image = Icon.checkmark.image(size: 10, weight: .bold, label: "Selected")
+        tick.imageScaling = .scaleNone
+        tick.contentTintColor = .white
+        tick.wantsLayer = true
+        tick.layer?.backgroundColor = Palette.accent.cgColor
+        tick.layer?.cornerRadius = 10
+        tick.layer?.borderWidth = 1.5
+        tick.layer?.borderColor = NSColor.white.cgColor
+        tick.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(tick)
+
         NSLayoutConstraint.activate([
             remove.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             remove.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            tick.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            tick.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            tick.widthAnchor.constraint(equalToConstant: 20),
+            tick.heightAnchor.constraint(equalToConstant: 20),
         ])
 
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         let when = formatter.localizedString(for: pin.date, relativeTo: Date())
-        toolTip = [pin.appName, when].compactMap { $0 }.joined(separator: ", ") + "\nClick to copy, Option-click to annotate, or drag"
+        toolTip = [pin.appName, when].compactMap { $0 }.joined(separator: ", ")
+            + "\nClick to copy, ⌥-click to annotate, ⌘-click to pick several, or drag"
         setAccessibilityRole(.button)
         setAccessibilityLabel("Pinned screenshot, \(when)")
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        updateChrome()
     }
 
     @available(*, unavailable)
@@ -53,15 +80,17 @@ final class PinCell: NSView, NSDraggingSource {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func mouseEntered(with event: NSEvent) { setHovered(true) }
-    override func mouseExited(with event: NSEvent) { setHovered(false) }
+    override func mouseEntered(with event: NSEvent) { isHovered = true; updateChrome() }
+    override func mouseExited(with event: NSEvent) { isHovered = false; updateChrome() }
 
-    private func setHovered(_ hovered: Bool) {
-        remove.isHidden = !hovered
+    private func updateChrome() {
+        remove.isHidden = !isHovered || isSelected
+        tick.isHidden = !isSelected
+        setAccessibilitySelected(isSelected)
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.15)
-        ring.borderWidth = hovered ? 2 : 0.5
-        ring.borderColor = hovered ? Palette.accent.cgColor : NSColor.labelColor.withAlphaComponent(0.12).cgColor
+        ring.borderWidth = isSelected ? 3 : isHovered ? 2 : 0.5
+        ring.borderColor = isSelected || isHovered ? Palette.accent.cgColor : NSColor.labelColor.withAlphaComponent(0.12).cgColor
         CATransaction.commit()
     }
 
@@ -75,32 +104,30 @@ final class PinCell: NSView, NSDraggingSource {
         guard !dragged, let downAt, downAt.distance(to: event.locationInWindow) > 4 else { return }
         dragged = true
         layer?.opacity = 1
-        let url = PinStore.shared.url(for: pin) as NSURL
-        let item = NSDraggingItem(pasteboardWriter: url)
-        item.setDraggingFrame(bounds, contents: PinStore.shared.thumbnail(for: pin))
-        beginDraggingSession(with: [item], event: event, source: self)
+        let pins = dragPins?() ?? [pin]
+        // A small fanned stack under the pointer, one image per pin.
+        let items = pins.enumerated().map { index, pin -> NSDraggingItem in
+            let item = NSDraggingItem(pasteboardWriter: PinStore.shared.url(for: pin) as NSURL)
+            let offset = CGFloat(min(index, 4)) * 6
+            item.setDraggingFrame(bounds.offsetBy(dx: offset, dy: -offset), contents: PinStore.shared.thumbnail(for: pin))
+            return item
+        }
+        beginDraggingSession(with: items, event: event, source: self)
     }
 
     override func mouseUp(with event: NSEvent) {
         layer?.opacity = 1
         defer { downAt = nil }
         guard !dragged, downAt != nil, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        if event.modifierFlags.contains(.option) {
-            onDone?()
-            PinStore.shared.open(pin)
-        } else {
-            PinStore.shared.copy(pin)
-            onDone?()
-            HUD.show("Copied pinned screenshot")
-        }
+        onClick?(event.modifierFlags)
     }
 
     @objc private func unpin() {
-        // The menu stays open and redraws the grid without this pin.
+        // The tray stays open and redraws without this pin.
         PinStore.shared.remove(pin)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
 
-    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { onDone?() }
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { onDragEnded?() }
 }

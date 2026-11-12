@@ -152,6 +152,22 @@ final class CaptureCoordinator {
         }
     }
 
+    /// A screenshot macOS took and saved itself. It already made its sound and flash, and its
+    /// file is the saved copy, so this only fills the clipboard and shows what comes next.
+    func adoptMacScreenshot(_ capture: Capture) {
+        lastCapture = capture
+        NotificationCenter.default.post(name: .shotputDidCapture, object: nil)
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let png = capture.png() else { return }
+            DispatchQueue.main.async { Output.copyToClipboard(png.data) }
+        }
+        switch Settings.shared.afterCapture {
+        case .preview: PreviewPanelController.shared.show(capture)
+        case .editor: EditorManager.shared.open(capture)
+        case .clipboard: break
+        }
+    }
+
     /// Captures the area chosen last time again, straight away. Starts a normal selection when
     /// there is no earlier area or its display has gone.
     func repeatLastArea() {

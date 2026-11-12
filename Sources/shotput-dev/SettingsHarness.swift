@@ -13,8 +13,9 @@ func settingsHarness(to path: String) {
     }
 
     let base = (path as NSString).deletingPathExtension
-    // A 13-inch MacBook Air shows about 800pt of height below the menu bar.
-    let tallest: CGFloat = 640
+    // The smallest supported screen is 800pt tall. Below a 25pt menu bar, a pane of 690pt plus
+    // the 28pt title bar and 52pt tab bar just fits.
+    let tallest: CGFloat = 690
 
     func render(_ view: some View, name: String, width: CGFloat?, appearance: NSAppearance.Name) -> CGSize {
         let host = NSHostingView(rootView: AnyView(view))
@@ -38,6 +39,12 @@ func settingsHarness(to path: String) {
         }
         return size
     }
+
+    // Measure each tab at its tallest: a solid window background shows every optional row.
+    let settings = Settings.shared
+    let savedBackground = settings.windowBackground
+    settings.windowBackground = .solid
+    defer { settings.windowBackground = savedBackground }
 
     for pane in SettingsWindowController.Pane.allCases {
         let view = pane.view.frame(width: SettingsWindowController.width).fixedSize(horizontal: false, vertical: true)

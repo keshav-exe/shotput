@@ -37,6 +37,14 @@ enum Icon: String {
     case textFound = "text.magnifyingglass"
     case refresh = "arrow.clockwise"
     case clock = "clock.arrow.circlepath"
+    case returnKey = "return"
+    case back = "arrow.left"
+    case keyboard = "keyboard"
+    case update = "arrow.down.circle"
+    case power = "power"
+    case lock = "lock"
+    case mouse = "computermouse"
+    case warning = "exclamationmark.triangle.fill"
 
     /// The symbol at the size its surroundings choose, as toolbars, tabs, and menus expect.
     func plain(label: String? = nil) -> NSImage {

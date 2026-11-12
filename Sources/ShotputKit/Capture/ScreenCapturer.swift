@@ -43,15 +43,20 @@ enum ScreenCapturer {
         try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     }
 
-    /// Stills of every display, or of one. Shotput's own windows are left out.
+    /// Stills of every display, or of one. Shotput's own windows are left out, unless Settings
+    /// asks for its normal windows; its previews, HUDs, and shelves are always left out.
     static func captureDisplays(_ content: SCShareableContent, only: NSScreen? = nil, showsCursor: Bool = false) async throws -> [DisplayShot] {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let own = content.applications.filter { $0.processID == ownPID }
+        let includesOwn = Settings.shared.capturesOwnWindows
+        let ownFloating = content.windows.filter { $0.owningApplication?.processID == ownPID && $0.windowLayer != 0 }
         var shots: [DisplayShot] = []
         for display in content.displays {
             guard let screen = NSScreen.screens.first(where: { $0.displayID == display.displayID }),
                   only == nil || only == screen else { continue }
-            let filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
+            let filter = includesOwn
+                ? SCContentFilter(display: display, excludingWindows: ownFloating)
+                : SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
             let scale = CGFloat(filter.pointPixelScale)
             let configuration = SCStreamConfiguration()
             configuration.width = Int(CGFloat(display.width) * scale)
@@ -89,10 +94,11 @@ enum ScreenCapturer {
         guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         let ownPID = ProcessInfo.processInfo.processIdentifier
+        let includesOwn = Settings.shared.capturesOwnWindows
 
         return list.compactMap { info in
             guard info[kCGWindowLayer as String] as? Int == 0,
-                  info[kCGWindowOwnerPID as String] as? pid_t != ownPID,
+                  includesOwn || info[kCGWindowOwnerPID as String] as? pid_t != ownPID,
                   info[kCGWindowAlpha as String] as? Double ?? 1 > 0,
                   let id = info[kCGWindowNumber as String] as? CGWindowID,
                   let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary,

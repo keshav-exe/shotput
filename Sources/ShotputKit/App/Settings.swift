@@ -31,6 +31,10 @@ final class Settings: ObservableObject {
         static let editorClosesOnCopy = "editorClosesOnCopy"
         static let escapeInEditor = "escapeInEditor"
         static let recognizesShapes = "recognizesShapes"
+        static let capturesOwnWindows = "capturesOwnWindows"
+        static let macScreenshotFolder = "macScreenshotFolderBookmark"
+        static let restoresMacThumbnail = "restoresMacThumbnail"
+        static let shortcutsBeforeScreenshotKeys = "shortcutsBeforeScreenshotKeys"
     }
 
     enum AfterCapture: String, CaseIterable, Identifiable {
@@ -119,6 +123,8 @@ final class Settings: ObservableObject {
     @Published var copyAtPointSize: Bool { didSet { store(copyAtPointSize, Key.copyAtPointSize) } }
     @Published var savesEveryCapture: Bool { didSet { store(savesEveryCapture, Key.savesEveryCapture) } }
     @Published private(set) var saveFolder: URL?
+    /// The folder macOS saves screenshots to, when Shotput previews them. Nil when it doesn't.
+    @Published private(set) var screenshotFolder: URL?
     @Published var shortcuts: [HotAction: Shortcut] {
         didSet {
             let stored = Dictionary(uniqueKeysWithValues: shortcuts.map { ($0.key.rawValue, $0.value) })
@@ -134,6 +140,8 @@ final class Settings: ObservableObject {
     @Published var snapsToEdges: Bool { didSet { store(snapsToEdges, Key.snapsToEdges) } }
     @Published var selectionHints: Hints { didSet { store(selectionHints.rawValue, Key.selectionHints) } }
     @Published var showsPointer: Bool { didSet { store(showsPointer, Key.showsPointer) } }
+    /// Whether Settings, the editor, and the guide can be captured like any other app's windows.
+    @Published var capturesOwnWindows: Bool { didSet { store(capturesOwnWindows, Key.capturesOwnWindows) } }
 
     @Published var windowShadow: Bool { didSet { store(windowShadow, Key.windowShadow) } }
     @Published var windowBackground: WindowBackground { didSet { store(windowBackground.rawValue, Key.windowBackground) } }
@@ -197,6 +205,7 @@ final class Settings: ObservableObject {
         snapsToEdges = defaults.bool(forKey: Key.snapsToEdges)
         selectionHints = Hints(rawValue: defaults.string(forKey: Key.selectionHints) ?? "") ?? .firstFew
         showsPointer = defaults.bool(forKey: Key.showsPointer)
+        capturesOwnWindows = defaults.bool(forKey: Key.capturesOwnWindows)
         windowShadow = defaults.bool(forKey: Key.windowShadow)
         windowBackground = WindowBackground(rawValue: defaults.string(forKey: Key.windowBackground) ?? "") ?? .transparent
         windowBackgroundColor = defaults.data(forKey: Key.windowBackgroundColor)
@@ -224,6 +233,7 @@ final class Settings: ObservableObject {
         }
         shortcuts = loaded
         saveFolder = Self.resolveBookmark(defaults.data(forKey: Key.saveFolder))
+        screenshotFolder = Self.resolveBookmark(defaults.data(forKey: Key.macScreenshotFolder))
     }
 
     private func store(_ value: Any, _ key: String) { defaults.set(value, forKey: key) }
@@ -243,6 +253,7 @@ final class Settings: ObservableObject {
         snapsToEdges = true
         selectionHints = .firstFew
         showsPointer = false
+        capturesOwnWindows = false
         windowShadow = false
         windowBackground = .transparent
         windowBackgroundColor = NSColor(hex: 0xE9E6DF)
@@ -279,6 +290,46 @@ final class Settings: ObservableObject {
         guard let data else { return nil }
         var isStale = false
         return try? URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &isStale)
+    }
+
+    // MARK: macOS screenshots
+
+    func setScreenshotFolder(_ url: URL?) {
+        guard let url, let bookmark = try? url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess]) else {
+            defaults.removeObject(forKey: Key.macScreenshotFolder)
+            screenshotFolder = nil
+            return
+        }
+        defaults.set(bookmark, forKey: Key.macScreenshotFolder)
+        screenshotFolder = url
+    }
+
+    func resolvedScreenshotFolder() -> URL? { screenshotFolder }
+
+    /// Whether ⇧⌘3, ⇧⌘4 and ⇧⌘5 are Shotput's.
+    var usesScreenshotKeys: Bool { ScreenshotKeys.isTaken(shortcuts) }
+
+    /// Puts Shotput's screen, area, and annotate captures on the keys macOS uses for screenshots,
+    /// and back to what they were before.
+    func setUsesScreenshotKeys(_ on: Bool) {
+        if on {
+            let before = Dictionary(uniqueKeysWithValues: ScreenshotKeys.bindings.keys.map { ($0.rawValue, shortcuts[$0] ?? Shortcut.none) })
+            defaults.set(try? JSONEncoder().encode(before), forKey: Key.shortcutsBeforeScreenshotKeys)
+            var next = shortcuts
+            // Anything else already on those keys lets go of them.
+            for (action, shortcut) in next where ScreenshotKeys.bindings.values.contains(shortcut) { next[action] = Shortcut.none }
+            for (action, shortcut) in ScreenshotKeys.bindings { next[action] = shortcut }
+            shortcuts = next
+        } else {
+            var next = shortcuts
+            let before = defaults.data(forKey: Key.shortcutsBeforeScreenshotKeys)
+                .flatMap { try? JSONDecoder().decode([String: Shortcut].self, from: $0) } ?? [:]
+            for action in ScreenshotKeys.bindings.keys {
+                next[action] = before[action.rawValue] ?? action.defaultShortcut
+            }
+            shortcuts = next
+            defaults.removeObject(forKey: Key.shortcutsBeforeScreenshotKeys)
+        }
     }
 
     // MARK: First-run touches

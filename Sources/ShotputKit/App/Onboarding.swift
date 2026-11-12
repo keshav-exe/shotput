@@ -3,19 +3,24 @@ import Combine
 import ServiceManagement
 import SwiftUI
 
-/// The welcome guide shown on first launch: permission, shortcuts, and setting up a mouse button.
+/// The welcome guide shown on first launch. Words and choices on the left, a small scene on the
+/// right that shows what the step is about.
 @MainActor
 final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     enum Step: Int, CaseIterable {
-        case welcome, permission, shortcuts, mouse, ready
+        /// `handoff` only shows when Shotput was made the screenshot tool and something else still
+        /// holds the keys.
+        case welcome, permission, defaultTool, handoff, shortcuts, mouse, ready
     }
+
+    static let size = CGSize(width: 920, height: 600)
 
     private let state: OnboardingState
 
     init(start: Step) {
         state = OnboardingState(step: start)
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 600, height: 600),
+            contentRect: CGRect(origin: .zero, size: Self.size),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false
         )
         window.titlebarAppearsTransparent = true
@@ -33,6 +38,8 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
             }
         }
         window.contentView = NSHostingView(rootView: OnboardingView(state: state))
+        // The content runs under the transparent title bar, so the frame is the whole size.
+        window.setFrame(CGRect(origin: .zero, size: Self.size), display: false)
         window.center()
     }
 
@@ -56,84 +63,186 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
 
 @MainActor
 final class OnboardingState: ObservableObject {
-    @Published var step: OnboardingWindowController.Step
+    typealias Step = OnboardingWindowController.Step
+
+    @Published var step: Step
+    /// The answer on the screenshot tool step. Yes is the recommendation, so it starts there.
+    @Published var makesDefault = true
     /// Development only: treat Screen Recording as allowed, for renders of the guide.
     static var assumeScreenRecording = false
     var onFinish: ((_ tryIt: Bool) -> Void)?
 
-    init(step: OnboardingWindowController.Step) { self.step = step }
+    init(step: Step) { self.step = step }
+
+    static func screenRecordingAllowed() -> Bool { assumeScreenRecording || CGPreflightScreenCaptureAccess() }
+
+    /// The dots in the footer. The hand-off belongs to the screenshot tool step.
+    static let dots: [Step] = Step.allCases.filter { $0 != .handoff }
+    var dotIndex: Int { Self.dots.firstIndex(of: step == .handoff ? .defaultTool : step) ?? 0 }
 
     func advance() {
-        if let next = OnboardingWindowController.Step(rawValue: step.rawValue + 1) { step = next } else { onFinish?(false) }
+        switch step {
+        case .defaultTool:
+            applyDefaultChoice()
+            step = makesDefault && HandoffStatus.current().needsAttention ? .handoff : .shortcuts
+        case .handoff: step = .shortcuts
+        case .ready: onFinish?(false)
+        default: if let next = Step(rawValue: step.rawValue + 1) { step = next }
+        }
     }
 
     func back() {
-        if let previous = OnboardingWindowController.Step(rawValue: step.rawValue - 1) { step = previous }
+        switch step {
+        case .shortcuts: step = makesDefault && HandoffStatus.current().needsAttention ? .handoff : .defaultTool
+        case .welcome: break
+        default: if let previous = Step(rawValue: step.rawValue - 1) { step = previous }
+        }
+    }
+
+    private func applyDefaultChoice() {
+        let settings = Settings.shared
+        if makesDefault != settings.usesScreenshotKeys { settings.setUsesScreenshotKeys(makesDefault) }
+    }
+}
+
+/// Who else answers ⇧⌘3, ⇧⌘4 and ⇧⌘5, checked live while the hand-off step is open.
+struct HandoffStatus: Equatable {
+    var macOSOwnsKeys: Bool
+    var taken: [HotAction]
+    var otherTools: [String]
+
+    var needsAttention: Bool { macOSOwnsKeys || !taken.isEmpty || !otherTools.isEmpty }
+
+    @MainActor
+    static func current() -> HandoffStatus {
+        let keys = Set(ScreenshotKeys.bindings.keys)
+        return HandoffStatus(
+            macOSOwnsKeys: SystemScreenshots.ownsScreenshotKeys,
+            taken: HotKeyCenter.takenActions.filter { keys.contains($0) },
+            otherTools: SystemScreenshots.otherTools.compactMap(\.localizedName)
+        )
     }
 }
 
 struct OnboardingView: View {
     @ObservedObject var state: OnboardingState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let paneWidth = OnboardingWindowController.size.width / 2
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                switch state.step {
-                case .welcome: WelcomeStep()
-                case .permission: PermissionStep()
-                case .shortcuts: ShortcutsStep()
-                case .mouse: MouseStep()
-                case .ready: ReadyStep()
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                StepDots(count: OnboardingState.dots.count, current: state.dotIndex)
+                    .padding(.bottom, 28)
+                Group {
+                    switch state.step {
+                    case .welcome: WelcomeStep()
+                    case .permission: PermissionStep()
+                    case .defaultTool: DefaultToolStep(state: state)
+                    case .handoff: HandoffStep()
+                    case .shortcuts: ShortcutsStep()
+                    case .mouse: MouseStep()
+                    case .ready: ReadyStep()
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.horizontal, 48)
-            .padding(.top, 40)
-            .padding(.bottom, 24)
-            .id(state.step)
-            .transition(reduceMotion ? .opacity : .asymmetric(
-                insertion: .opacity.combined(with: .offset(x: 24)),
-                removal: .opacity.combined(with: .offset(x: -24))
-            ))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .arrives()
+                .id(state.step)
 
-            footer
+                footer
+            }
+            .padding(.horizontal, 44)
+            .padding(.top, 58)
+            .padding(.bottom, 32)
+            .frame(width: Self.paneWidth)
+            .background(Palette.background.color)
+
+            StageView(state: state)
+                .frame(width: Self.paneWidth)
+                .frame(maxHeight: .infinity)
         }
-        .frame(width: 600, height: 600)
-        .animation(.snappy(duration: 0.28), value: state.step)
+        .frame(width: OnboardingWindowController.size.width, height: OnboardingWindowController.size.height)
+        // Under the transparent title bar too, so the wallpaper reaches the top edge and the
+        // window is exactly this size.
+        .ignoresSafeArea()
     }
 
     private var footer: some View {
-        HStack {
-            Text("\(state.step.rawValue + 1) of \(OnboardingWindowController.Step.allCases.count)")
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.tertiary)
-                .contentTransition(.numericText())
+        HStack(spacing: 16) {
+            if state.step != .welcome {
+                Button { state.back() } label: {
+                    Label { Text("Back") } icon: { Icon.back.view(size: 12, weight: .semibold) }
+                        .padding(.vertical, 8)
+                        .padding(.trailing, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.large)
+                .foregroundStyle(.secondary)
+            }
 
             Spacer()
 
-            if state.step != .welcome {
-                Button("Back") { state.back() }
-                    .controlSize(.large)
-            }
             if state.step == .ready {
                 Button("Done") { state.onFinish?(false) }
                     .controlSize(.large)
-                Button("Try a Capture") { state.onFinish?(true) }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-            } else {
-                Button(state.step == .welcome ? "Get Started" : "Continue") { state.advance() }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+            }
+            Button { state.step == .ready ? state.onFinish?(true) : state.advance() } label: {
+                HStack(spacing: 8) {
+                    Text(nextTitle)
+                    Icon.returnKey.view(size: 11, weight: .semibold).opacity(0.7)
+                }
+                .padding(.horizontal, 6)
+            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    private var nextTitle: String {
+        switch state.step {
+        case .welcome: "Get Started"
+        case .ready: "Try a Capture"
+        default: "Next"
+        }
+    }
+}
+
+private struct StepDots: View {
+    let count: Int
+    let current: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0 ..< count, id: \.self) { index in
+                Capsule()
+                    .fill(index == current ? Palette.ink.color : Palette.ink.color.opacity(0.18))
+                    .frame(width: index == current ? 16 : 6, height: 6)
             }
         }
-        .padding(.horizontal, 48)
-        .padding(.vertical, 20)
-        .overlay(alignment: .top) { Rectangle().fill(Palette.hairline.color).frame(height: 1) }
+        .animation(.snappy(duration: 0.25), value: current)
+        .accessibilityElement()
+        .accessibilityLabel("Step \(current + 1) of \(count)")
     }
+}
+
+/// A page fades and rises in as it arrives, and the page it replaces goes at once. Nothing
+/// animates out, so no half-gone page is ever left on screen or under the pointer.
+private struct Arrival: ViewModifier {
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : 8)
+            .onAppear { withAnimation(.smooth(duration: 0.32)) { shown = true } }
+    }
+}
+
+extension View {
+    func arrives() -> some View { modifier(Arrival()) }
 }
 
 // MARK: Steps
@@ -143,90 +252,106 @@ private struct StepHeader: View {
     let message: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.spacingS) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.title.weight(.semibold))
+                .font(.system(size: 30, weight: .semibold))
+                .tracking(-0.4)
+                .fixedSize(horizontal: false, vertical: true)
             Text(message)
+                .font(.system(size: 14))
                 .foregroundStyle(.secondary)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 28)
     }
 }
 
-/// Opens on the one thing worth learning first: the shortcut, drawn as the keys you press.
 private struct WelcomeStep: View {
-    @ObservedObject private var settings = Settings.shared
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 14) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: 56, height: 56)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Shotput").font(.title2.weight(.semibold))
-                    Text("Screenshots for pasting, from the menu bar.").foregroundStyle(.secondary)
-                }
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 60, height: 60)
+                .padding(.bottom, 18)
+            StepHeader(
+                title: "Welcome to Shotput",
+                message: "Screenshots made for pasting. Press a key, drag an area, and it’s on your clipboard before you let go."
+            )
+            VStack(alignment: .leading, spacing: 14) {
+                FeatureRow(.capture, "Capture", "an area, a window, or the whole screen.")
+                FeatureRow(.annotate, "Annotate", "with arrows, boxes, steps and redaction.")
+                FeatureRow(.pin, "Pin", "the ones you need again to the menu bar.")
+                FeatureRow(.lock, "Keep", "every capture on your Mac. None of them leave it.")
             }
-
-            Spacer(minLength: 22)
-
-            WelcomeFilm()
-
-            Spacer(minLength: 22)
-
-            Text("Sandboxed with no network access, so nothing you capture leaves this Mac.")
-                .font(.callout)
-                .foregroundStyle(.tertiary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct FeatureRow: View {
+    let icon: Icon
+    let lead: String
+    let rest: String
+
+    init(_ icon: Icon, _ lead: String, _ rest: String) {
+        self.icon = icon
+        self.lead = lead
+        self.rest = rest
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            icon.view(size: 13, weight: .medium)
+                .foregroundStyle(Palette.accent.color)
+                .frame(width: 28, height: 28)
+                .background(Palette.accent.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            (Text(lead).fontWeight(.semibold) + Text(" ") + Text(rest).foregroundStyle(.secondary))
+                .font(.system(size: 13))
+        }
     }
 }
 
 private struct PermissionStep: View {
     /// Lets the dev harness render the granted state on a Mac where it has no permission.
-    static func isGranted() -> Bool { OnboardingState.assumeScreenRecording || CGPreflightScreenCaptureAccess() }
+    static func isGranted() -> Bool { OnboardingState.screenRecordingAllowed() }
 
     @State private var granted = PermissionStep.isGranted()
     @State private var asked = false
     private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.spacingL) {
+        VStack(alignment: .leading, spacing: 0) {
             StepHeader(
                 title: "Allow Screen Recording",
-                message: "macOS only lets Shotput see your screen while you take a screenshot, and only once you allow it."
+                message: "macOS only lets Shotput see your screen once you allow it, and Shotput only looks while you take a screenshot."
             )
 
-            if granted {
-                Label { Text("Screen Recording is on") } icon: { Icon.check.view(size: 15) }
-                    .font(.headline)
-                    .foregroundStyle(.green)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.scale(scale: 0.9).combined(with: .opacity))
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    NumberedRow(1, "Click Open System Settings below.")
-                    NumberedRow(2, "Turn on Shotput under Screen & System Audio Recording.")
-                    NumberedRow(3, "macOS asks to quit and reopen Shotput. Let it, and this guide picks up where you left off.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: Metrics.spacingS) {
-                    Button("Open System Settings") {
+            SettingCard(icon: .screen, title: "Screen Recording", detail: "Needed to take screenshots.") {
+                if granted {
+                    StatusPill(text: "Allowed", good: true)
+                        .arrives()
+                } else {
+                    Button(asked ? "Open Again" : "Allow…") {
                         UserDefaults.standard.set(true, forKey: "askedForScreenRecording")
                         UserDefaults.standard.set(OnboardingWindowController.Step.permission.rawValue, forKey: "onboardingResumeStep")
                         if asked || !CGRequestScreenCaptureAccess() { ScreenPermission.openSettings() }
                         asked = true
                     }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    if asked {
-                        Button("Reopen Shotput") { Relaunch.now() }
-                            .controlSize(.large)
-                    }
                 }
+            }
+
+            if !granted && asked {
+                VStack(alignment: .leading, spacing: 10) {
+                    NumberedRow(1, "Turn on Shotput under Screen & System Audio Recording.")
+                    NumberedRow(2, "macOS asks to quit and reopen Shotput. Let it, and this guide picks up here.")
+                    Button("Reopen Shotput") { Relaunch.now() }
+                        .padding(.leading, 34)
+                }
+                .font(.system(size: 13))
+                .padding(.top, 20)
+                .arrives()
             }
         }
         .onReceive(poll) { _ in
@@ -236,32 +361,161 @@ private struct PermissionStep: View {
     }
 }
 
-private struct ShortcutsStep: View {
-    @ObservedObject private var settings = Settings.shared
-    private let shown: [HotAction] = [.area, .areaAnnotate, .window, .screen, .text, .annotateLast]
+private struct DefaultToolStep: View {
+    @ObservedObject var state: OnboardingState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.spacingL) {
+        VStack(alignment: .leading, spacing: 0) {
+            StepHeader(
+                title: "Make Shotput your screenshot tool?",
+                message: "Then ⇧⌘3, ⇧⌘4 and ⇧⌘5 open Shotput instead of the tool you use now. You can change this later in Settings."
+            )
+            VStack(spacing: 10) {
+                ChoiceCard(
+                    selected: state.makesDefault,
+                    title: "Yes, use Shotput",
+                    detail: "⇧⌘4 for an area, ⇧⌘3 for the screen, ⇧⌘5 to annotate.",
+                    tag: "Recommended"
+                ) { state.makesDefault = true }
+                ChoiceCard(
+                    selected: !state.makesDefault,
+                    title: "No, keep my current tool",
+                    detail: "Shotput stays on ⌃⌥⌘A and its own keys, and leaves yours alone."
+                ) { state.makesDefault = false }
+            }
+        }
+    }
+}
+
+private struct ChoiceCard: View {
+    let selected: Bool
+    let title: String
+    let detail: String
+    var tag: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle().strokeBorder(selected ? Palette.accent.color : Palette.ink.color.opacity(0.25), lineWidth: 1.5)
+                    if selected { Circle().fill(Palette.accent.color).padding(4) }
+                }
+                .frame(width: 18, height: 18)
+                .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(title).font(.system(size: 14, weight: .semibold))
+                        if let tag {
+                            Text(tag)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Palette.accent.color)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(Palette.accent.color.opacity(0.12), in: Capsule())
+                        }
+                    }
+                    Text(detail)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(selected ? Palette.accent.color : Palette.hairline.color, lineWidth: selected ? 1.5 : 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(PressableCard())
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .animation(.snappy(duration: 0.2), value: selected)
+    }
+}
+
+/// Settles a little under the finger, so the card feels pressed rather than merely clicked.
+private struct PressableCard: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Turning off what still answers the screenshot keys. macOS hears them before any app does,
+/// and the sandbox can't change that for you, so this shows exactly where to click.
+private struct HandoffStep: View {
+    @State private var status = HandoffStatus.current()
+    private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            StepHeader(
+                title: "Hand over the keys",
+                message: "macOS answers ⇧⌘3, ⇧⌘4 and ⇧⌘5 before any app hears them. Turn its shortcuts off and they’re Shotput’s."
+            )
+
+            SettingCard(icon: .keyboard, title: "macOS screenshot shortcuts", detail: status.macOSOwnsKeys
+                ? "Keyboard Shortcuts → Screenshots. Untick ⇧⌘3, ⇧⌘4 and ⇧⌘5. Leave the clipboard ones on."
+                : "Turned off. The keys reach Shotput now.") {
+                if status.macOSOwnsKeys {
+                    Button("Open…") { SystemScreenshots.openKeyboardShortcuts() }
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    StatusPill(text: "Off", good: true)
+                        .arrives()
+                }
+            }
+
+            ForEach(status.otherTools, id: \.self) { name in
+                SettingCard(icon: .warning, title: "\(name) is open", detail: "It may hold the same keys. Quit it, or clear them in its settings.") {
+                    Button("Quit") { SystemScreenshots.otherTools.first { $0.localizedName == name }?.terminate() }
+                }
+                .padding(.top, 10)
+            }
+
+            if !status.taken.isEmpty, !status.macOSOwnsKeys, status.otherTools.isEmpty {
+                Text("Another app still holds \(status.taken.compactMap { Settings.shared.shortcuts[$0]?.display }.joined(separator: ", ")).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 14)
+            }
+        }
+        .onReceive(poll) { _ in
+            // Registering again is how Shotput finds out the keys came free.
+            HotKeyCenter.reload()
+            let now = HandoffStatus.current()
+            if now != status { status = now }
+        }
+    }
+}
+
+private struct ShortcutsStep: View {
+    @ObservedObject private var settings = Settings.shared
+    private let shown: [HotAction] = [.area, .areaAnnotate, .window, .screen, .text]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
             StepHeader(
                 title: "Your shortcuts",
-                message: "They work from any app. Change them whenever you like in Settings."
+                message: "They work from any app. Pressing one again while you select backs out."
             )
             VStack(spacing: 0) {
                 ForEach(shown) { action in
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(action.title).font(.body.weight(.medium))
-                            Text(action.detail).font(.callout).foregroundStyle(.secondary)
-                        }
+                    HStack {
+                        Text(action.title).font(.system(size: 13, weight: .medium))
                         Spacer()
-                        KeyCaps(shortcut: settings.shortcuts[action] ?? .none)
+                        KeyCaps(shortcut: settings.shortcuts[action] ?? .none, size: .small)
                     }
-                    .padding(.vertical, 8)
+                    .frame(height: 40)
                     if action != shown.last { Divider() }
                 }
             }
-            .padding(.horizontal, Metrics.spacingM)
-            .padding(.vertical, Metrics.spacingXS)
+            .padding(.horizontal, 14)
             .card()
         }
     }
@@ -276,104 +530,48 @@ private struct MouseStep: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.spacingL) {
+        VStack(alignment: .leading, spacing: 0) {
             StepHeader(
                 title: "Capture from a mouse button",
-                message: "Logi Options+ can press Shotput's keys for you. Press the same button again while selecting to back out."
+                message: "Logi Options+ can press Shotput’s keys for you. The gesture button fits five of them."
             )
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    NumberedRow(1, "Open Logi Options+ and pick your mouse.")
-                    Spacer()
-                    if let logiApp {
-                        Button("Open") { NSWorkspace.shared.open(logiApp) }
-                    } else {
-                        Button("Get It") { NSWorkspace.shared.open(Self.download) }
-                    }
-                }
+            VStack(alignment: .leading, spacing: 12) {
+                NumberedRow(1, "Open Logi Options+ and pick your mouse.")
                 NumberedRow(2, "Click the gesture or thumb button on the picture.")
                 NumberedRow(3, "Choose Keyboard shortcut, then press the Shotput keys.")
             }
-
-            GestureMap()
+            .font(.system(size: 13))
+            Group {
+                if let logiApp {
+                    Button("Open Logi Options+") { NSWorkspace.shared.open(logiApp) }
+                } else {
+                    Button("Get Logi Options+") { NSWorkspace.shared.open(Self.download) }
+                }
+            }
+            .padding(.top, 20)
         }
-    }
-}
-
-/// The gesture button's five directions, each with the Shotput action that suits it.
-private struct GestureMap: View {
-    @ObservedObject private var settings = Settings.shared
-
-    var body: some View {
-        Grid(horizontalSpacing: 6, verticalSpacing: 6) {
-            GridRow {
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                cell("Up", "Annotate", .areaAnnotate)
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-            }
-            GridRow {
-                cell("Left", "Window", .window)
-                cell("Click", "Area", .area, emphasised: true)
-                cell("Right", "Last capture", .annotateLast)
-            }
-            GridRow {
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                cell("Down", "Screen", .screen)
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Suggested gesture button layout")
-    }
-
-    private func cell(_ gesture: String, _ name: String, _ action: HotAction, emphasised: Bool = false) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                Text(gesture).foregroundStyle(.secondary)
-                Text(name).fontWeight(.medium)
-            }
-            .font(.callout)
-            .lineLimit(1)
-            KeyCaps(shortcut: settings.shortcuts[action] ?? .none, size: .small)
-        }
-        .frame(width: 150, height: 64)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(emphasised ? Palette.accent.color.opacity(0.1) : Palette.surfaceMuted.color.opacity(0.6))
-        )
     }
 }
 
 private struct ReadyStep: View {
-    @ObservedObject private var settings = Settings.shared
+    @ObservedObject private var updates = Updates.shared
     @State private var opensAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.spacingL) {
+        VStack(alignment: .leading, spacing: 0) {
             StepHeader(
-                title: "You're set",
-                message: "Shotput is in the menu bar. Click its icon any time for captures and Settings."
+                title: "Almost ready",
+                message: "Choose how Shotput runs. It lives in the menu bar: click the icon for pins, right-click for everything else."
             )
-            VStack(spacing: 0) {
-                row("Open Shotput at login") {
+            VStack(spacing: 10) {
+                SettingCard(icon: .power, title: "Open at login", detail: "Shotput is there whenever your Mac starts.") {
                     Toggle("", isOn: $opensAtLogin).labelsHidden().toggleStyle(.switch)
                 }
-                Divider()
-                row("After a capture") {
-                    Picker("", selection: $settings.afterCapture) {
-                        ForEach(Settings.AfterCapture.allCases) { Text($0.title).tag($0) }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                }
-                Divider()
-                row("Play a sound on capture") {
-                    Toggle("", isOn: $settings.playsSound).labelsHidden().toggleStyle(.switch)
+                SettingCard(icon: .update, title: "Install updates automatically", detail: "Downloads in the background, installs when Shotput quits.") {
+                    Toggle("", isOn: Binding(get: { updates.isAutomatic }, set: { updates.isAutomatic = $0 }))
+                        .labelsHidden().toggleStyle(.switch)
                 }
             }
-            .padding(.horizontal, Metrics.spacingM)
-            .card()
             .onChange(of: opensAtLogin) { _, enabled in
                 do {
                     if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
@@ -385,26 +583,60 @@ private struct ReadyStep: View {
     }
 }
 
-private extension ReadyStep {
-    func row(_ title: String, @ViewBuilder control: () -> some View) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            control()
+// MARK: Pieces
+
+/// One setting as a raised row: a symbol, what it is, and its control.
+private struct SettingCard<Control: View>: View {
+    let icon: Icon
+    let title: String
+    let detail: String
+    @ViewBuilder let control: Control
+
+    var body: some View {
+        HStack(spacing: 14) {
+            icon.view(size: 15, weight: .medium)
+                .foregroundStyle(Palette.ink.color.opacity(0.75))
+                .frame(width: 36, height: 36)
+                .background(Palette.surfaceMuted.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 13.5, weight: .semibold))
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            control
         }
-        .frame(minHeight: 44)
+        .padding(14)
+        .card()
+    }
+}
+
+private struct StatusPill: View {
+    let text: String
+    let good: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Icon.checkmark.view(size: 10, weight: .bold)
+            Text(text)
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(good ? Color.green : Color.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background((good ? Color.green : Color.secondary).opacity(0.12), in: Capsule())
     }
 }
 
 private extension View {
     /// The guide's one surface: a raised panel with a hairline edge.
     func card() -> some View {
-        background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.hairline.color))
+        background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.hairline.color))
     }
 }
-
-// MARK: Pieces
 
 private struct NumberedRow: View {
     let number: Int

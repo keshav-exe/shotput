@@ -67,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
 
         HotKeyCenter.reload()
+        Updates.shared.start()
+        if Settings.shared.screenshotFolder != nil { MacScreenshotWatcher.shared.start() }
 
         let defaults = UserDefaults.standard
         if Settings.shared.consumeFirstLaunch() {
@@ -157,6 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settings.target = self
         settings.image = Icon.settings.plain()
+        let updates = menu.addItem(withTitle: "Check for Updates…", action: #selector(Updates.checkNow), keyEquivalent: "")
+        updates.target = Updates.shared
         menu.addItem(withTitle: "Quit Shotput", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
@@ -230,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 }
 
+@MainActor
 enum MainMenu {
     /// Shown while a Shotput window is open. Items with no target travel the responder chain, which
     /// is how ⌘C reaches the editor and text fields alike.
@@ -252,6 +257,7 @@ enum MainMenu {
             item(menu, "About Shotput", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), "")
             menu.addItem(.separator())
             item(menu, "Settings…", #selector(AppDelegate.showSettings(_:)), ",")
+            menu.addItem(withTitle: "Check for Updates…", action: #selector(Updates.checkNow), keyEquivalent: "").target = Updates.shared
             menu.addItem(.separator())
             item(menu, "Hide Shotput", #selector(NSApplication.hide(_:)), "h")
             item(menu, "Quit Shotput", #selector(NSApplication.terminate(_:)), "q")

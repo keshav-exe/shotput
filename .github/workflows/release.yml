@@ -1,10 +1,13 @@
-# Push a tag such as v0.2.0 and this builds Shotput, packages it, and publishes a GitHub release
-# with the .dmg, the .zip, and their checksums. Tags with a hyphen (v0.2.0-beta.1) become
-# pre-releases. Run it by hand from the Actions tab to rebuild the assets of an existing tag.
-#
-# Optional repository secrets for a signed, notarized build that opens without a warning:
+# Push a tag such as v0.2.0 and this builds and packages Shotput. It publishes a GitHub release
+# only when it can sign and notarize, using these repository secrets:
 #   DEVELOPER_ID_P12, DEVELOPER_ID_P12_PASSWORD, DEVELOPER_ID_NAME
 #   NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD
+#   SPARKLE_PRIVATE_KEY (from `generate_keys --account shotput -x key.txt`), for the update feed
+# Without them the build is kept as a workflow artifact and no release is touched, so a tag
+# pushed by Scripts/release.sh never has its notarized files replaced by unsigned ones.
+#
+# Tags with a hyphen (v0.2.0-beta.1) become pre-releases. An existing release keeps its files
+# unless you run this by hand from the Actions tab with "replace" ticked.
 name: Release
 
 on:
@@ -15,6 +18,10 @@ on:
       tag:
         description: Existing tag to build, for example v0.2.0
         required: true
+      replace:
+        description: Replace the files of an existing release
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,6 +31,7 @@ jobs:
     runs-on: macos-26
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
+      SIGNED: ${{ secrets.DEVELOPER_ID_P12 != '' && secrets.NOTARY_PASSWORD != '' && secrets.SPARKLE_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,16 +81,45 @@ jobs:
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: ./Scripts/package.sh
 
+      - name: Update feed
+        if: env.SIGNED == 'true'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          VERSION="${TAG#v}"
+          FEED_DIR="$(mktemp -d)"
+          cp "build/Shotput-$VERSION.zip" "$FEED_DIR/"
+          echo "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file - \
+            --download-url-prefix "https://github.com/keshav-exe/shotput/releases/download/$TAG/" \
+            --full-release-notes-url "https://github.com/keshav-exe/shotput/releases/tag/$TAG" \
+            -o build/appcast.xml "$FEED_DIR"
+
+      - name: Keep the unsigned build
+        if: env.SIGNED != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Shotput-${{ env.TAG }}-unsigned
+          path: |
+            build/Shotput-*.dmg
+            build/Shotput-*.zip
+            build/checksums.txt
+
       - name: Publish
+        if: env.SIGNED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          REPLACE: ${{ inputs.replace && 'true' || 'false' }}
         run: |
           VERSION="${TAG#v}"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" build/Shotput-$VERSION.dmg build/Shotput-$VERSION.zip build/checksums.txt --clobber
+            if [ "$REPLACE" != "true" ]; then
+              echo "Release $TAG already exists. Leaving its files alone."
+              exit 0
+            fi
+            gh release upload "$TAG" build/Shotput-$VERSION.dmg build/Shotput-$VERSION.zip build/checksums.txt build/appcast.xml Scripts/install.sh --clobber
           else
             FLAGS=""
             case "$TAG" in *-*) FLAGS="--prerelease" ;; esac
             gh release create "$TAG" $FLAGS --title "Shotput $VERSION" --generate-notes --verify-tag \
-              build/Shotput-$VERSION.dmg build/Shotput-$VERSION.zip build/checksums.txt
+              build/Shotput-$VERSION.dmg build/Shotput-$VERSION.zip build/checksums.txt build/appcast.xml Scripts/install.sh
           fi

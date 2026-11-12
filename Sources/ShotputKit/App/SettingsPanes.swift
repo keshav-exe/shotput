@@ -50,6 +50,8 @@ final class SettingsWindowController: NSWindowController {
         for pane in Pane.allCases {
             let host = NSHostingController(rootView: pane.view.frame(width: Self.width).fixedSize(horizontal: false, vertical: true))
             host.sizingOptions = .preferredContentSize
+            // The tab view controller titles the window from the selected pane's controller.
+            host.title = pane.title
             let item = NSTabViewItem(viewController: host)
             item.label = pane.title
             item.image = pane.icon.plain(label: pane.title)
@@ -113,6 +115,18 @@ struct GeneralPane: View {
                 Toggle("Play a sound on capture", isOn: $settings.playsSound)
             }
 
+            Section("macOS screenshots") {
+                Toggle(isOn: Binding(
+                    get: { settings.screenshotFolder != nil },
+                    set: { on in
+                        if on { MacScreenshotWatcher.shared.enable() } else { MacScreenshotWatcher.shared.disable() }
+                    }
+                )) {
+                    Text("Preview macOS screenshots")
+                    Text(macScreenshotsDetail)
+                }
+            }
+
             Section {
                 Toggle(isOn: $settings.allowsLinks) {
                     Text("Allow shotput:// links")
@@ -148,10 +162,8 @@ struct CapturePane: View {
         Form {
             Section("While selecting") {
                 Toggle("Show the magnifier", isOn: $settings.showsMagnifier)
-                Toggle(isOn: $settings.snapsToEdges) {
-                    Text("Snap to window edges")
-                    Text("Hold ⌘ to place freely either way.")
-                }
+                Toggle("Snap to window edges", isOn: $settings.snapsToEdges)
+                    .help("Hold ⌘ while selecting to place freely either way.")
                 Picker("Show the hint", selection: $settings.selectionHints) {
                     ForEach(Settings.Hints.allCases) { Text($0.title).tag($0) }
                 }
@@ -175,15 +187,23 @@ struct CapturePane: View {
             }
 
             Section("Windows") {
-                Toggle("Keep the window's shadow", isOn: $settings.windowShadow)
-                Picker("Background", selection: $settings.windowBackground) {
-                    ForEach(Settings.WindowBackground.allCases) { Text($0.title).tag($0) }
-                }
-                if settings.windowBackground == .solid {
-                    ColorPicker("Colour", selection: Binding(
-                        get: { Color(nsColor: settings.windowBackgroundColor) },
-                        set: { settings.windowBackgroundColor = NSColor($0) }
-                    ), supportsOpacity: false)
+                Toggle("Keep the window’s shadow", isOn: $settings.windowShadow)
+                LabeledContent("Background") {
+                    HStack(spacing: 8) {
+                        // The colour well sits beside the choice it belongs to, not on a row of its own.
+                        if settings.windowBackground == .solid {
+                            ColorPicker("Colour", selection: Binding(
+                                get: { Color(nsColor: settings.windowBackgroundColor) },
+                                set: { settings.windowBackgroundColor = NSColor($0) }
+                            ), supportsOpacity: false)
+                            .labelsHidden()
+                        }
+                        Picker("Background", selection: $settings.windowBackground) {
+                            ForEach(Settings.WindowBackground.allCases) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
                 }
                 if settings.windowBackground != .transparent {
                     LabeledContent("Padding") {
@@ -199,12 +219,26 @@ struct CapturePane: View {
                 }
             }
 
-            Section("Screen") {
-                Toggle("Include the pointer", isOn: $settings.showsPointer)
+            Section("In captures") {
+                Toggle("Include the pointer in screen captures", isOn: $settings.showsPointer)
+                Toggle("Include Shotput’s own windows", isOn: $settings.capturesOwnWindows)
+                    .help("Settings, the editor, and the guide show up in captures. Previews, the pin shelf, and the selection are always left out.")
             }
         }
         .formStyle(.grouped)
         .scrollDisabled(true)
+    }
+}
+
+extension GeneralPane {
+    private var macScreenshotsDetail: String {
+        guard settings.screenshotFolder != nil else {
+            return "Shots from ⇧⌘3 and ⇧⌘4 get Shotput’s preview and go on the clipboard."
+        }
+        if SystemScreenshots.savesToClipboard {
+            return "macOS is set to copy screenshots, not save them. Choose a folder under ⇧⌘5 → Options."
+        }
+        return "Watching \(settings.screenshotFolder?.lastPathComponent ?? "the folder"). macOS’s own thumbnail is off while this is on."
     }
 }
 
@@ -386,6 +420,7 @@ struct OutputPane: View {
 
 struct ShortcutsPane: View {
     @ObservedObject private var settings = Settings.shared
+    @State private var systemOwnsKeys = false
 
     var body: some View {
         Form {
@@ -408,6 +443,26 @@ struct ShortcutsPane: View {
             }
 
             Section {
+                Toggle(isOn: Binding(get: { settings.usesScreenshotKeys }, set: { settings.setUsesScreenshotKeys($0) })) {
+                    Text("Use ⇧⌘3, ⇧⌘4 and ⇧⌘5")
+                    Text("Screen, area, and area with the editor, on the keys macOS uses for screenshots.")
+                }
+                if settings.usesScreenshotKeys && systemOwnsKeys {
+                    LabeledContent {
+                        Button("Open Keyboard Shortcuts") { SystemScreenshots.openKeyboardShortcuts() }
+                    } label: {
+                        Text("macOS still answers these keys")
+                        Text("Under Screenshots, turn off its screenshot shortcuts.")
+                    }
+                }
+            }
+            .onAppear { systemOwnsKeys = SystemScreenshots.ownsScreenshotKeys }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                systemOwnsKeys = SystemScreenshots.ownsScreenshotKeys
+                HotKeyCenter.reload()
+            }
+
+            Section {
                 LabeledContent {
                     Button("Show Me How") { (NSApp.delegate as? AppDelegate)?.showOnboarding(.mouse) }
                 } label: {
@@ -424,6 +479,7 @@ struct ShortcutsPane: View {
 // MARK: About
 
 struct AboutPane: View {
+    @ObservedObject private var updates = Updates.shared
     private static let repository = URL(string: "https://github.com/keshav-exe/shotput")!
 
     private var version: String {
@@ -442,14 +498,17 @@ struct AboutPane: View {
                 Text("Shotput").font(.title2.weight(.semibold))
                 Text("Version \(version)").foregroundStyle(.secondary).textSelection(.enabled)
             }
-            Text("Free and open source under the MIT licence. Shotput has no network access, so it never checks for updates by itself.")
+            Text("Free and open source under the MIT licence. Shotput itself has no network access. Updates come through a separate helper that only fetches signed releases from GitHub.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: 380)
+                .frame(maxWidth: 400)
                 .fixedSize(horizontal: false, vertical: true)
+            Toggle("Install updates automatically", isOn: Binding(get: { updates.isAutomatic }, set: { updates.isAutomatic = $0 }))
+                .toggleStyle(.checkbox)
             HStack(spacing: Metrics.spacingS) {
-                Button("Check for Updates") { NSWorkspace.shared.open(Self.repository.appendingPathComponent("releases/latest")) }
+                Button("Check for Updates") { updates.checkNow() }
                     .buttonStyle(.borderedProminent)
+                    .disabled(!updates.canCheck)
                 Button("Source Code") { NSWorkspace.shared.open(Self.repository) }
                 Button("Report an Issue") { NSWorkspace.shared.open(Self.repository.appendingPathComponent("issues/new")) }
             }

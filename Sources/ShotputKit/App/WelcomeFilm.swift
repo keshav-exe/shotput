@@ -27,8 +27,8 @@ struct WelcomeFilm: View {
     private enum Caption: String {
         case press = "Press the shortcut in any app"
         case drag = "The screen holds still while you drag"
-        case copied = "It's on the clipboard already"
-        case paste = "Paste it wherever you're working"
+        case copied = "It’s on the clipboard already"
+        case paste = "Paste it wherever you’re working"
     }
 
     // Layout of the miniature desktop.

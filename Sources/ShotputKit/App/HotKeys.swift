@@ -161,6 +161,8 @@ final class HotKeyCenter {
     static let shared = HotKeyCenter()
 
     private var handlers: [UInt32: () -> Void] = [:]
+    /// Indexes of bindings another app already holds, from the last `register`.
+    private(set) var takenIndexes: Set<Int> = []
     private var references: [EventHotKeyRef] = []
     private var isInstalled = false
 
@@ -177,11 +179,14 @@ final class HotKeyCenter {
             if status == noErr, let reference {
                 references.append(reference)
                 handlers[id] = binding.action
+            } else if status == OSStatus(eventHotKeyExistsErr) {
+                takenIndexes.insert(index)
             }
         }
     }
 
     func unregisterAll() {
+        takenIndexes.removeAll()
         references.forEach { UnregisterEventHotKey($0) }
         references.removeAll()
         handlers.removeAll()
@@ -211,5 +216,10 @@ final class HotKeyCenter {
         shared.register(HotAction.allCases.map { action in
             (shortcuts[action] ?? action.defaultShortcut, { MainActor.assumeIsolated { action.perform() } })
         })
+    }
+
+    /// Actions whose shortcut another app registered first, so Shotput never hears it.
+    static var takenActions: [HotAction] {
+        shared.takenIndexes.sorted().map { HotAction.allCases[$0] }
     }
 }

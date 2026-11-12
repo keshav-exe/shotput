@@ -31,6 +31,11 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
+# Sparkle, for updates. SwiftPM leaves the framework next to the binary.
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$(dirname "$BINARY")/Sparkle.framework" "$APP/Contents/Frameworks/"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/Shotput" 2>/dev/null || true
+
 find_identity() { security find-identity -v -p codesigning | awk -v kind="$1" '$0 ~ kind { print $2; exit }'; }
 IDENTITY="${SHOTPUT_SIGN_IDENTITY:-$(find_identity "Developer ID Application")}"
 IDENTITY="${IDENTITY:-$(find_identity "Apple Development")}"
@@ -38,8 +43,17 @@ IDENTITY="${IDENTITY:--}"
 # A secure timestamp is required for notarization. Ad-hoc signatures cannot carry one.
 TIMESTAMP=(--timestamp)
 [ "$IDENTITY" = "-" ] && TIMESTAMP=(--timestamp=none)
+# Inside out: Sparkle's helpers, then the framework, then the app. The Downloader keeps its own
+# entitlements, which give it, and only it, the network.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+sign() { codesign --force --options runtime "${TIMESTAMP[@]}" --sign "$IDENTITY" "$@"; }
+sign "$SPARKLE/XPCServices/Installer.xpc"
+sign --preserve-metadata=entitlements "$SPARKLE/XPCServices/Downloader.xpc"
+sign "$SPARKLE/Autoupdate"
+sign "$SPARKLE/Updater.app"
+sign "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --options runtime "${TIMESTAMP[@]}" --entitlements Resources/Shotput.entitlements --sign "$IDENTITY" "$APP"
-codesign --verify --strict "$APP"
+codesign --verify --strict --deep "$APP"
 echo "Built $APP ($VERSION, build $BUILD_NUMBER), signed by $(codesign -dvv "$APP" 2>&1 | awk -F= '/^Authority/ { print $2; exit }' || true)"
 
 if [ "${1:-}" = "--install" ]; then

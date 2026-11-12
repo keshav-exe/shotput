@@ -58,6 +58,11 @@ final class PinStore {
         if notify { save() }
     }
 
+    func remove(_ some: [Pin]) {
+        some.forEach { remove($0, notify: false) }
+        save()
+    }
+
     func removeAll() {
         pins.forEach { remove($0, notify: false) }
         save()
@@ -73,6 +78,20 @@ final class PinStore {
     func copy(_ pin: Pin) {
         guard let data = try? Data(contentsOf: url(for: pin)) else { return }
         Output.copyToClipboard(data)
+    }
+
+    /// Several pins at once, one clipboard item each, so apps that take more than one image
+    /// paste them all and the rest paste the first.
+    func copy(_ some: [Pin]) {
+        let items = some.compactMap { pin -> NSPasteboardItem? in
+            guard let data = try? Data(contentsOf: url(for: pin)) else { return nil }
+            let item = NSPasteboardItem()
+            item.setData(data, forType: .png)
+            return item
+        }
+        guard !items.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects(items)
     }
 
     func open(_ pin: Pin) {

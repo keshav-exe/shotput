@@ -109,7 +109,8 @@ final class PinCell: NSView, NSDraggingSource {
         let items = pins.enumerated().map { index, pin -> NSDraggingItem in
             let item = NSDraggingItem(pasteboardWriter: PinStore.shared.url(for: pin) as NSURL)
             let offset = CGFloat(min(index, 4)) * 6
-            item.setDraggingFrame(bounds.offsetBy(dx: offset, dy: -offset), contents: PinStore.shared.thumbnail(for: pin))
+            let image = PinStore.shared.thumbnail(for: pin).map { NSImage(cgImage: $0, size: .zero) }
+            item.setDraggingFrame(bounds.offsetBy(dx: offset, dy: -offset), contents: image)
             return item
         }
         beginDraggingSession(with: items, event: event, source: self)

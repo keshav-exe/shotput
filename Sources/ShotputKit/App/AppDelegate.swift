@@ -23,7 +23,6 @@ final class AppPresence {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
-    private static let resumeKey = "onboardingResumeStep"
 
     private var statusItem: NSStatusItem?
     private var settingsController: SettingsWindowController?
@@ -70,13 +69,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         Updates.shared.start()
         if Settings.shared.screenshotFolder != nil { MacScreenshotWatcher.shared.start() }
 
-        let defaults = UserDefaults.standard
         if Settings.shared.consumeFirstLaunch() {
+            OnboardingProgress.reset()
+            OnboardingProgress.isFirstRun = true
             showOnboarding(.welcome)
-        } else if defaults.object(forKey: Self.resumeKey) != nil {
-            // Reopened after allowing Screen Recording from the welcome guide.
-            let step = OnboardingWindowController.Step(rawValue: defaults.integer(forKey: Self.resumeKey)) ?? .permission
-            defaults.removeObject(forKey: Self.resumeKey)
+        } else if let step = OnboardingProgress.unfinishedStep {
+            OnboardingProgress.isFirstRun = true
+            // Reopened before the guide was finished, usually after macOS quit Shotput to apply
+            // Screen Recording.
             showOnboarding(step)
         }
     }
@@ -220,7 +220,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let controller = onboarding ?? {
             let controller = OnboardingWindowController(start: step)
             controller.onClose = { [weak self] in
-                UserDefaults.standard.removeObject(forKey: Self.resumeKey)
                 DispatchQueue.main.async { self?.onboarding = nil }
             }
             onboarding = controller

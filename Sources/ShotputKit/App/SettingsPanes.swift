@@ -190,7 +190,6 @@ struct CapturePane: View {
                 Toggle("Keep the window’s shadow", isOn: $settings.windowShadow)
                 LabeledContent("Background") {
                     HStack(spacing: 8) {
-                        // The colour well sits beside the choice it belongs to, not on a row of its own.
                         if settings.windowBackground == .solid {
                             ColorPicker("Colour", selection: Binding(
                                 get: { Color(nsColor: settings.windowBackgroundColor) },

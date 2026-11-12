@@ -90,14 +90,12 @@ final class MacScreenshotWatcher {
     private var since = Date()
     private var pendingScan: DispatchWorkItem?
 
-    var isRunning: Bool { source != nil }
-
     /// Starts watching the folder in the saved bookmark. Returns false when there is no
     /// bookmark yet or it no longer resolves.
     @discardableResult
     func start() -> Bool {
         stop()
-        guard let folder = Settings.shared.resolvedScreenshotFolder(), folder.startAccessingSecurityScopedResource() else {
+        guard let folder = Settings.shared.screenshotFolder, folder.startAccessingSecurityScopedResource() else {
             return false
         }
         let descriptor = open(folder.path, O_EVTONLY)

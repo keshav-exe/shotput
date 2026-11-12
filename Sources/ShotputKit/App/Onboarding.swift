@@ -31,14 +31,18 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
         window.delegate = self
         state.onFinish = { [weak self] tryIt in
+            OnboardingProgress.finish()
             self?.close()
             if tryIt {
                 // Give the window a moment to leave, so it is not in the frozen still.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { HotAction.area.perform() }
             }
         }
-        window.contentView = NSHostingView(rootView: OnboardingView(state: state))
-        // The content runs under the transparent title bar, so the frame is the whole size.
+        let host = NSHostingView(rootView: OnboardingView(state: state))
+        // The content runs under the transparent title bar, so the frame is the whole size, and
+        // SwiftUI mustn't grow the window around the title bar's safe area.
+        host.sizingOptions = []
+        window.contentView = host
         window.setFrame(CGRect(origin: .zero, size: Self.size), display: false)
         window.center()
     }
@@ -55,9 +59,55 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Only the close button and ⌘W come through here, never quitting. So closing the guide by
+    /// hand once Screen Recording is on counts as done, while the quit macOS asks for after
+    /// allowing it leaves the guide to pick up where it was on the next launch.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if OnboardingState.screenRecordingAllowed() { OnboardingProgress.finish() }
+        return true
+    }
+
     func windowWillClose(_ notification: Notification) {
+        state.stopWatching()
+        GuideWallpaper.shared.release()
         AppPresence.shared.windowDidClose()
         onClose?()
+    }
+}
+
+/// How far the first-run guide got, kept across launches so a quit to apply Screen Recording
+/// picks it up again.
+@MainActor
+enum OnboardingProgress {
+    private static let stepKey = "onboardingStep"
+    private static let doneKey = "onboardingDone"
+    /// Only the guide shown on first launch, or resumed from it, keeps its place. Opening it from
+    /// Settings later doesn't.
+    static var isFirstRun = false
+
+    /// The step to reopen at on launch, or nil when the guide was finished or never started.
+    static var unfinishedStep: OnboardingWindowController.Step? {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: doneKey), defaults.object(forKey: stepKey) != nil else { return nil }
+        return OnboardingWindowController.Step(rawValue: defaults.integer(forKey: stepKey)) ?? .welcome
+    }
+
+    static func record(_ step: OnboardingWindowController.Step) {
+        guard isFirstRun, !UserDefaults.standard.bool(forKey: doneKey) else { return }
+        UserDefaults.standard.set(step.rawValue, forKey: stepKey)
+    }
+
+    /// A first launch starts the guide over, whatever an earlier install left behind.
+    static func reset() {
+        UserDefaults.standard.removeObject(forKey: doneKey)
+        UserDefaults.standard.removeObject(forKey: stepKey)
+    }
+
+    static func finish() {
+        guard isFirstRun else { return }
+        isFirstRun = false
+        UserDefaults.standard.set(true, forKey: doneKey)
+        UserDefaults.standard.removeObject(forKey: stepKey)
     }
 }
 
@@ -65,14 +115,54 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
 final class OnboardingState: ObservableObject {
     typealias Step = OnboardingWindowController.Step
 
-    @Published var step: Step
+    @Published var step: Step {
+        didSet {
+            OnboardingProgress.record(step)
+            updateWatching()
+        }
+    }
+    /// What the permission and hand-off pages show, refreshed once a second while one of them is
+    /// open and not at all otherwise.
+    @Published private(set) var screenRecordingAllowed = OnboardingState.screenRecordingAllowed()
+    @Published private(set) var handoff = HandoffStatus.current()
+    private var watch: Timer?
     /// The answer on the screenshot tool step. Yes is the recommendation, so it starts there.
     @Published var makesDefault = true
     /// Development only: treat Screen Recording as allowed, for renders of the guide.
     static var assumeScreenRecording = false
     var onFinish: ((_ tryIt: Bool) -> Void)?
 
-    init(step: Step) { self.step = step }
+    init(step: Step) {
+        self.step = step
+        // Reopened past the screenshot tool step: the answer given then is in the shortcuts.
+        if step.rawValue > Step.defaultTool.rawValue { makesDefault = Settings.shared.usesScreenshotKeys }
+        OnboardingProgress.record(step)
+        updateWatching()
+    }
+
+    func stopWatching() {
+        watch?.invalidate()
+        watch = nil
+    }
+
+    private func updateWatching() {
+        guard step == .permission || step == .handoff else { return stopWatching() }
+        refresh()
+        guard watch == nil else { return }
+        watch = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+    }
+
+    private func refresh() {
+        let allowed = Self.screenRecordingAllowed()
+        if allowed != screenRecordingAllowed { screenRecordingAllowed = allowed }
+        guard step == .handoff else { return }
+        // Registering again is how Shotput finds out keys came free, so only while some are held.
+        if handoff.macOSOwnsKeys || !handoff.taken.isEmpty { HotKeyCenter.reload() }
+        let now = HandoffStatus.current()
+        if now != handoff { handoff = now }
+    }
 
     static func screenRecordingAllowed() -> Bool { assumeScreenRecording || CGPreflightScreenCaptureAccess() }
 
@@ -137,9 +227,9 @@ struct OnboardingView: View {
                 Group {
                     switch state.step {
                     case .welcome: WelcomeStep()
-                    case .permission: PermissionStep()
+                    case .permission: PermissionStep(state: state)
                     case .defaultTool: DefaultToolStep(state: state)
-                    case .handoff: HandoffStep()
+                    case .handoff: HandoffStep(state: state)
                     case .shortcuts: ShortcutsStep()
                     case .mouse: MouseStep()
                     case .ready: ReadyStep()
@@ -162,8 +252,7 @@ struct OnboardingView: View {
                 .frame(maxHeight: .infinity)
         }
         .frame(width: OnboardingWindowController.size.width, height: OnboardingWindowController.size.height)
-        // Under the transparent title bar too, so the wallpaper reaches the top edge and the
-        // window is exactly this size.
+        // Under the transparent title bar too, so the wallpaper reaches the top edge.
         .ignoresSafeArea()
     }
 
@@ -306,19 +395,17 @@ private struct FeatureRow: View {
                 .foregroundStyle(Palette.accent.color)
                 .frame(width: 28, height: 28)
                 .background(Palette.accent.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            (Text(lead).fontWeight(.semibold) + Text(" ") + Text(rest).foregroundStyle(.secondary))
+            Text("\(Text(lead).fontWeight(.semibold)) \(Text(rest).foregroundStyle(.secondary))")
                 .font(.system(size: 13))
         }
     }
 }
 
 private struct PermissionStep: View {
-    /// Lets the dev harness render the granted state on a Mac where it has no permission.
-    static func isGranted() -> Bool { OnboardingState.screenRecordingAllowed() }
-
-    @State private var granted = PermissionStep.isGranted()
+    @ObservedObject var state: OnboardingState
     @State private var asked = false
-    private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var granted: Bool { state.screenRecordingAllowed }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -334,8 +421,10 @@ private struct PermissionStep: View {
                 } else {
                     Button(asked ? "Open Again" : "Allow…") {
                         UserDefaults.standard.set(true, forKey: "askedForScreenRecording")
-                        UserDefaults.standard.set(OnboardingWindowController.Step.permission.rawValue, forKey: "onboardingResumeStep")
-                        if asked || !CGRequestScreenCaptureAccess() { ScreenPermission.openSettings() }
+                        // Asking puts Shotput in the list. Recent macOS often asks without showing
+                        // anything, so the settings page always opens too.
+                        _ = CGRequestScreenCaptureAccess()
+                        ScreenPermission.openSettings()
                         asked = true
                     }
                     .buttonStyle(.borderedProminent)
@@ -353,10 +442,6 @@ private struct PermissionStep: View {
                 .padding(.top, 20)
                 .arrives()
             }
-        }
-        .onReceive(poll) { _ in
-            let now = PermissionStep.isGranted()
-            if now != granted { granted = now }
         }
     }
 }
@@ -449,8 +534,9 @@ private struct PressableCard: ButtonStyle {
 /// Turning off what still answers the screenshot keys. macOS hears them before any app does,
 /// and the sandbox can't change that for you, so this shows exactly where to click.
 private struct HandoffStep: View {
-    @State private var status = HandoffStatus.current()
-    private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @ObservedObject var state: OnboardingState
+
+    private var status: HandoffStatus { state.handoff }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -484,12 +570,6 @@ private struct HandoffStep: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 14)
             }
-        }
-        .onReceive(poll) { _ in
-            // Registering again is how Shotput finds out the keys came free.
-            HotKeyCenter.reload()
-            let now = HandoffStatus.current()
-            if now != status { status = now }
         }
     }
 }

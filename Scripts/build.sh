@@ -26,6 +26,9 @@ APP="build/Shotput.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/Shotput"
+# Local symbols are only for debuggers; dropping them cuts the binary by about 60%. Crash
+# reports still name Shotput's functions.
+strip -x "$APP/Contents/MacOS/Shotput"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"

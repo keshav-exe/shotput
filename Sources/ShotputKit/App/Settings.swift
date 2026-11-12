@@ -304,8 +304,6 @@ final class Settings: ObservableObject {
         screenshotFolder = url
     }
 
-    func resolvedScreenshotFolder() -> URL? { screenshotFolder }
-
     /// Whether ⇧⌘3, ⇧⌘4 and ⇧⌘5 are Shotput's.
     var usesScreenshotKeys: Bool { ScreenshotKeys.isTaken(shortcuts) }
 

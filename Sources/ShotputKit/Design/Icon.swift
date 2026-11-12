@@ -43,7 +43,6 @@ enum Icon: String {
     case update = "arrow.down.circle"
     case power = "power"
     case lock = "lock"
-    case mouse = "computermouse"
     case warning = "exclamationmark.triangle.fill"
 
     /// The symbol at the size its surroundings choose, as toolbars, tabs, and menus expect.

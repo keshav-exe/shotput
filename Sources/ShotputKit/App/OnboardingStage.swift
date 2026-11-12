@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// The right half of the welcome guide: a dark stage with one small scene per step, showing the
@@ -49,12 +50,12 @@ struct StageView: View {
                 .frame(width: WelcomeFilm.stage.width * 0.84, height: WelcomeFilm.stage.height * 0.84)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
-        case .permission: PermissionScene()
+        case .permission: PermissionScene(granted: state.screenRecordingAllowed)
         case .defaultTool:
             state.makesDefault
                 ? KeyboardScene(lit: ["⇧", "⌘", "3", "4", "5"], cycle: ["3", "4", "5"])
                 : KeyboardScene(lit: ["⌃", "⌥", "⌘", "A"], cycle: ["A"])
-        case .handoff: HandoffScene()
+        case .handoff: HandoffScene(macOSOwns: state.handoff.macOSOwnsKeys)
         case .shortcuts: ShortcutKeyboardScene()
         case .mouse: GestureMap().padding(14).stagePanel(radius: 24)
         case .ready: ReadyScene()
@@ -67,10 +68,9 @@ struct StageView: View {
 /// A Privacy & Security list where Shotput's switch is the one that matters, and flips when the
 /// real permission does.
 private struct PermissionScene: View {
-    @State private var granted = OnboardingState.screenRecordingAllowed()
+    let granted: Bool
     @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -92,10 +92,7 @@ private struct PermissionScene: View {
         }
         .frame(width: 340)
         .stagePanel(radius: 18)
-        .onReceive(poll) { _ in
-            let now = OnboardingState.screenRecordingAllowed()
-            if now != granted { withAnimation(.spring(duration: 0.4, bounce: 0.3)) { granted = now } }
-        }
+        .animation(.spring(duration: 0.4, bounce: 0.3), value: granted)
         .onAppear { if !reduceMotion { pulse = true } }
     }
 
@@ -246,8 +243,7 @@ private struct ShortcutKeyboardScene: View {
 
 /// The list in Keyboard Shortcuts → Screenshots, ticked while macOS still owns the keys.
 private struct HandoffScene: View {
-    @State private var macOSOwns = SystemScreenshots.ownsScreenshotKeys
-    private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    let macOSOwns: Bool
 
     /// The last value says whether Shotput takes the keys. The clipboard ones stay with macOS.
     private let rows: [(String, String, Bool)] = [
@@ -288,10 +284,6 @@ private struct HandoffScene: View {
         }
         .frame(width: 388)
         .stagePanel(radius: 16)
-        .onReceive(poll) { _ in
-            let now = SystemScreenshots.ownsScreenshotKeys
-            if now != macOSOwns { macOSOwns = now }
-        }
     }
 }
 
@@ -443,6 +435,12 @@ final class GuideWallpaper: ObservableObject {
         "/System/Library/Desktop Pictures/.wallpapers/Sonoma Horizon/Sonoma Horizon.heic",
         "/System/Library/Desktop Pictures/Sonoma.heic",
     ]
+
+    /// The guide closed: give the picture's memory back. It loads again if the guide reopens.
+    func release() {
+        image = nil
+        isCaptured = false
+    }
 
     func load() {
         guard !isCaptured, !isLoading else { return }

@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 
 /// Captures kept in the menu bar: the 15 most recent pins, newest first, saved in Shotput's own
 /// container so they survive a relaunch. Nothing here leaves the Mac.
@@ -17,7 +18,7 @@ final class PinStore {
     static let didChange = Notification.Name("ShotputPinsDidChange")
 
     private(set) var pins: [Pin] = []
-    private var thumbnails: [UUID: NSImage] = [:]
+    private var thumbnails: [UUID: CGImage] = [:]
     private let directory: URL
 
     private init() {
@@ -68,9 +69,18 @@ final class PinStore {
         save()
     }
 
-    func thumbnail(for pin: Pin) -> NSImage? {
+    /// Decoded at the size the tray shows it, not the capture's. A full-screen Retina pin is
+    /// about 24 MB decoded; this is about 0.3 MB.
+    func thumbnail(for pin: Pin) -> CGImage? {
         if let cached = thumbnails[pin.id] { return cached }
-        guard let image = NSImage(contentsOf: url(for: pin)) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 360,
+        ]
+        guard let source = CGImageSourceCreateWithURL(url(for: pin) as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         thumbnails[pin.id] = image
         return image
     }

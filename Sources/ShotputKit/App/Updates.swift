@@ -26,6 +26,8 @@ final class Updates: ObservableObject {
         do {
             try updater.start()
         } catch {
+            // Usually a bad feed URL or public key in Info.plist. Check for Updates stays disabled.
+            NSLog("Shotput: updates are off: %@", error.localizedDescription)
             return
         }
         canCheck = updater.canCheckForUpdates

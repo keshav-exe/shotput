@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked(_:))
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        item.button?.toolTip = "Shotput: click for pins, right-click for captures and settings"
+        item.button?.toolTip = L("Shotput: click for pins, right-click for captures and settings")
         statusItem = item
         Settings.shared.$showsMenuBarIcon
             .sink { [weak item] visible in item?.isVisible = visible }
@@ -156,12 +156,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         add(.annotateLast, #selector(annotateLast))
         add(.annotateClipboard, #selector(annotateClipboard))
         menu.addItem(.separator())
-        let settings = menu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
+        let settings = menu.addItem(withTitle: L("Settings…"), action: #selector(showSettings(_:)), keyEquivalent: ",")
         settings.target = self
         settings.image = Icon.settings.plain()
-        let updates = menu.addItem(withTitle: "Check for Updates…", action: #selector(Updates.checkNow), keyEquivalent: "")
+        let updates = menu.addItem(withTitle: L("Check for Updates…"), action: #selector(Updates.checkNow), keyEquivalent: "")
         updates.target = Updates.shared
-        menu.addItem(withTitle: "Quit Shotput", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: L("Quit Shotput"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -253,36 +253,36 @@ enum MainMenu {
         }
 
         submenu("Shotput") { menu in
-            item(menu, "About Shotput", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), "")
+            item(menu, L("About Shotput"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), "")
             menu.addItem(.separator())
-            item(menu, "Settings…", #selector(AppDelegate.showSettings(_:)), ",")
-            menu.addItem(withTitle: "Check for Updates…", action: #selector(Updates.checkNow), keyEquivalent: "").target = Updates.shared
+            item(menu, L("Settings…"), #selector(AppDelegate.showSettings(_:)), ",")
+            menu.addItem(withTitle: L("Check for Updates…"), action: #selector(Updates.checkNow), keyEquivalent: "").target = Updates.shared
             menu.addItem(.separator())
-            item(menu, "Hide Shotput", #selector(NSApplication.hide(_:)), "h")
-            item(menu, "Quit Shotput", #selector(NSApplication.terminate(_:)), "q")
+            item(menu, L("Hide Shotput"), #selector(NSApplication.hide(_:)), "h")
+            item(menu, L("Quit Shotput"), #selector(NSApplication.terminate(_:)), "q")
         }
-        submenu("File") { menu in
-            item(menu, "Save…", #selector(EditorWindowController.saveDocument(_:)), "s")
-            item(menu, "Close", #selector(NSWindow.performClose(_:)), "w")
+        submenu(L("File")) { menu in
+            item(menu, L("Save…"), #selector(EditorWindowController.saveDocument(_:)), "s")
+            item(menu, L("Close"), #selector(NSWindow.performClose(_:)), "w")
         }
-        submenu("Edit") { menu in
-            item(menu, "Undo", #selector(CanvasView.undo(_:)), "z")
-            item(menu, "Redo", #selector(CanvasView.redo(_:)), "z", [.command, .shift])
+        submenu(L("Edit")) { menu in
+            item(menu, L("Undo"), #selector(CanvasView.undo(_:)), "z")
+            item(menu, L("Redo"), #selector(CanvasView.redo(_:)), "z", [.command, .shift])
             menu.addItem(.separator())
-            item(menu, "Cut", #selector(NSText.cut(_:)), "x")
-            item(menu, "Copy", #selector(NSText.copy(_:)), "c")
-            item(menu, "Paste", #selector(NSText.paste(_:)), "v")
-            item(menu, "Delete", #selector(NSText.delete(_:)), "")
-            item(menu, "Select All", #selector(NSText.selectAll(_:)), "a")
+            item(menu, L("Cut"), #selector(NSText.cut(_:)), "x")
+            item(menu, L("Copy"), #selector(NSText.copy(_:)), "c")
+            item(menu, L("Paste"), #selector(NSText.paste(_:)), "v")
+            item(menu, L("Delete"), #selector(NSText.delete(_:)), "")
+            item(menu, L("Select All"), #selector(NSText.selectAll(_:)), "a")
         }
-        submenu("View") { menu in
-            item(menu, "Zoom In", #selector(EditorWindowController.zoomImageIn(_:)), "+")
-            item(menu, "Zoom Out", #selector(EditorWindowController.zoomImageOut(_:)), "-")
-            item(menu, "Actual Size", #selector(EditorWindowController.zoomImageToActualSize(_:)), "0")
-            item(menu, "Zoom to Fit", #selector(EditorWindowController.zoomImageToFit(_:)), "9")
+        submenu(L("View")) { menu in
+            item(menu, L("Zoom In"), #selector(EditorWindowController.zoomImageIn(_:)), "+")
+            item(menu, L("Zoom Out"), #selector(EditorWindowController.zoomImageOut(_:)), "-")
+            item(menu, L("Actual Size"), #selector(EditorWindowController.zoomImageToActualSize(_:)), "0")
+            item(menu, L("Zoom to Fit"), #selector(EditorWindowController.zoomImageToFit(_:)), "9")
         }
-        submenu("Window") { menu in
-            item(menu, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")
+        submenu(L("Window")) { menu in
+            item(menu, L("Minimize"), #selector(NSWindow.performMiniaturize(_:)), "m")
             NSApp.windowsMenu = menu
         }
         return main

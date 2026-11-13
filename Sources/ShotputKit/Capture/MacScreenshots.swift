@@ -131,8 +131,8 @@ final class MacScreenshotWatcher {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.directoryURL = SystemScreenshots.folder
-        panel.message = "Shotput needs to see the folder macOS saves screenshots to, so it can preview them."
-        panel.prompt = "Allow"
+        panel.message = L("Shotput needs to see the folder macOS saves screenshots to, so it can preview them.")
+        panel.prompt = L("Allow")
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url else { return false }
         Settings.shared.setScreenshotFolder(url)

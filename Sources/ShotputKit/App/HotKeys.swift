@@ -88,14 +88,14 @@ enum HotAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .area: "Capture area"
-        case .areaAnnotate: "Capture area and annotate"
-        case .window: "Capture window"
-        case .screen: "Capture screen"
-        case .annotateLast: "Annotate last capture"
-        case .repeatArea: "Repeat last area"
-        case .text: "Copy text from area"
-        case .annotateClipboard: "Annotate clipboard image"
+        case .area: L("Capture area")
+        case .areaAnnotate: L("Capture area and annotate")
+        case .window: L("Capture window")
+        case .screen: L("Capture screen")
+        case .annotateLast: L("Annotate last capture")
+        case .repeatArea: L("Repeat last area")
+        case .text: L("Copy text from area")
+        case .annotateClipboard: L("Annotate clipboard image")
         }
     }
 
@@ -115,14 +115,14 @@ enum HotAction: String, CaseIterable, Identifiable {
     /// One line on what the action does, for Settings and the welcome guide.
     var detail: String {
         switch self {
-        case .area: "Drag an area. It is on the clipboard when you let go."
-        case .areaAnnotate: "Same, then the editor opens where you captured."
-        case .window: "Click a window to get it alone, with clean corners."
-        case .screen: "The whole display under the pointer."
-        case .annotateLast: "Opens the most recent capture in the editor."
-        case .repeatArea: "Captures the same area as last time, with no selection."
-        case .text: "Drag over any text and it is copied as text."
-        case .annotateClipboard: "Opens the image on the clipboard in the editor."
+        case .area: L("Drag an area. It is on the clipboard when you let go.")
+        case .areaAnnotate: L("Same, then the editor opens where you captured.")
+        case .window: L("Click a window to get it alone, with clean corners.")
+        case .screen: L("The whole display under the pointer.")
+        case .annotateLast: L("Opens the most recent capture in the editor.")
+        case .repeatArea: L("Captures the same area as last time, with no selection.")
+        case .text: L("Drag over any text and it is copied as text.")
+        case .annotateClipboard: L("Opens the image on the clipboard in the editor.")
         }
     }
 

@@ -238,15 +238,15 @@ private final class PreviewView: NSView, NSDraggingSource {
         buttons.spacing = 6
         buttons.alphaValue = 0
         buttons.translatesAutoresizingMaskIntoConstraints = false
-        buttons.addArrangedSubview(button(.annotate, "Annotate", #selector(annotate)))
-        let copy = button(.copy, "Copy again", #selector(copyAgain))
+        buttons.addArrangedSubview(button(.annotate, L("Annotate"), #selector(annotate)))
+        let copy = button(.copy, L("Copy again"), #selector(copyAgain))
         copyButton = copy
         buttons.addArrangedSubview(copy)
-        buttons.addArrangedSubview(button(.save, "Save", #selector(save)))
-        buttons.addArrangedSubview(button(.pin, "Pin to the menu bar", #selector(pin)))
+        buttons.addArrangedSubview(button(.save, L("Save"), #selector(save)))
+        buttons.addArrangedSubview(button(.pin, L("Pin to the menu bar"), #selector(pin)))
         addSubview(buttons)
         // Dismiss sits apart in the corner, as on the system's own screenshot thumbnail.
-        let dismiss = button(.close, "Dismiss", #selector(close))
+        let dismiss = button(.close, L("Dismiss"), #selector(close))
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.alphaValue = 0
         closeButton.addSubview(dismiss)
@@ -265,7 +265,7 @@ private final class PreviewView: NSView, NSDraggingSource {
         addTrackingArea(NSTrackingArea(
             rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self
         ))
-        setAccessibilityLabel("Screenshot preview. Click to annotate.")
+        setAccessibilityLabel(L("Screenshot preview. Click to annotate."))
     }
 
     @available(*, unavailable)

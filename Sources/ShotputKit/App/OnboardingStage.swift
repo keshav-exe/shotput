@@ -74,7 +74,7 @@ private struct PermissionScene: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Screen & System Audio Recording")
+            Text(L("Screen & System Audio Recording"))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.45))
                 .padding(.horizontal, 18)
@@ -185,7 +185,7 @@ struct KeyboardScene: View {
             withAnimation(.spring(duration: 0.25, bounce: 0.4)) { pressed = (pressed + 1) % (cycle.count * 2) }
         }
         .accessibilityElement()
-        .accessibilityLabel("Keyboard with \(lit.sorted().joined(separator: " ")) highlighted")
+        .accessibilityLabel(String(format: L("Keyboard with %@ highlighted"), lit.sorted().joined(separator: " ")))
     }
 
     /// Every other beat a key is down, so each press reads as its own tap.
@@ -247,18 +247,18 @@ private struct HandoffScene: View {
 
     /// The last value says whether Shotput takes the keys. The clipboard ones stay with macOS.
     private let rows: [(String, String, Bool)] = [
-        ("Save picture of screen as a file", "⇧⌘3", true),
-        ("Copy picture of screen to the clipboard", "⌃⇧⌘3", false),
-        ("Save picture of selected area as a file", "⇧⌘4", true),
-        ("Copy picture of selected area to the clipboard", "⌃⇧⌘4", false),
-        ("Screenshot and recording options", "⇧⌘5", true),
+        (L("Save picture of screen as a file"), "⇧⌘3", true),
+        (L("Copy picture of screen to the clipboard"), "⌃⇧⌘3", false),
+        (L("Save picture of selected area as a file"), "⇧⌘4", true),
+        (L("Copy picture of selected area to the clipboard"), "⌃⇧⌘4", false),
+        (L("Screenshot and recording options"), "⇧⌘5", true),
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Icon.keyboard.view(size: 12, weight: .semibold)
-                Text("Keyboard Shortcuts  ›  Screenshots")
+                Text(L("Keyboard Shortcuts  ›  Screenshots"))
             }
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.white.opacity(0.45))
@@ -297,22 +297,22 @@ private struct GestureMap: View {
         Grid(horizontalSpacing: 8, verticalSpacing: 8) {
             GridRow {
                 Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                cell("Up", "Annotate", .areaAnnotate)
+                cell(L("Up"), L("Annotate"), .areaAnnotate)
                 Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
             }
             GridRow {
-                cell("Left", "Window", .window)
-                cell("Click", "Area", .area, emphasised: true)
-                cell("Right", "Last", .annotateLast)
+                cell(L("Left"), L("Window"), .window)
+                cell(L("Click"), L("Area"), .area, emphasised: true)
+                cell(L("Right"), L("Last"), .annotateLast)
             }
             GridRow {
                 Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                cell("Down", "Screen", .screen)
+                cell(L("Down"), L("Screen"), .screen)
                 Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Suggested gesture button layout")
+        .accessibilityLabel(L("Suggested gesture button layout"))
     }
 
     private func cell(_ gesture: String, _ name: String, _ action: HotAction, emphasised: Bool = false) -> some View {
@@ -361,8 +361,8 @@ private struct ReadyScene: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Pinned").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                    Text("3 of 15").font(.system(size: 12).monospacedDigit()).foregroundStyle(.white.opacity(0.45))
+                    Text(L("Pinned")).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text(L("3 of 15")).font(.system(size: 12).monospacedDigit()).foregroundStyle(.white.opacity(0.45))
                     Spacer()
                 }
                 HStack(spacing: 8) {

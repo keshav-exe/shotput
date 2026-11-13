@@ -45,6 +45,12 @@ The first launch opens a short guide, with your wallpaper behind it:
 
 Settings → Shortcuts → Show Me How brings back the mouse button page.
 
+## Languages
+
+English and Russian. The interface follows the system language; Shotput has no language setting of
+its own. Adding a language is one folder and one line in `Info.plist`: see
+[docs/LOCALIZING.md](docs/LOCALIZING.md).
+
 ## Use it from a Logitech mouse
 
 Shotput's shortcuts are ordinary system-wide hotkeys, so Logi Options+ can fire them.

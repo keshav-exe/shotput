@@ -9,9 +9,9 @@ final class BackdropControls: ObservableObject {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .none: "None"
-            case .wallpaper: "Wallpaper"
-            case .color: "Colour"
+            case .none: L("None")
+            case .wallpaper: L("Wallpaper")
+            case .color: L("Colour")
             }
         }
     }
@@ -73,7 +73,7 @@ struct BackdropPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Picker("Background", selection: $controls.choice) {
+            Picker(L("Background"), selection: $controls.choice) {
                 ForEach(BackdropControls.Choice.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
@@ -81,7 +81,7 @@ struct BackdropPicker: View {
             .onChange(of: controls.choice) { controls.apply() }
 
             if controls.choice == .color {
-                ColorPicker("Colour", selection: Binding(
+                ColorPicker(L("Colour"), selection: Binding(
                     get: { Color(nsColor: controls.color) },
                     set: {
                         controls.color = NSColor($0)
@@ -92,7 +92,7 @@ struct BackdropPicker: View {
 
             if controls.choice != .none {
                 HStack(spacing: Metrics.spacingS) {
-                    Text("Padding")
+                    Text(L("Padding"))
                     Slider(value: $controls.padding, in: 8...160, step: 4) { editing in
                         if !editing { controls.endSlide() }
                     }

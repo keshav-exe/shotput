@@ -40,7 +40,7 @@ struct StyleBar: View {
 
                 BarButton(
                     icon: model.filled ? .fill : .unfilled,
-                    label: model.styleTool == .redact ? "Solid block" : "Fill",
+                    label: model.styleTool == .redact ? L("Solid block") : L("Fill"),
                     isSelected: model.filled
                 ) { model.setFilled(!model.filled) }
                     .disabled(!model.styleTool.supportsFill)
@@ -49,10 +49,10 @@ struct StyleBar: View {
                 divider
 
                 HStack(spacing: 2) {
-                    BarButton(icon: .undo, label: "Undo", isSelected: false) { model.undo() }
+                    BarButton(icon: .undo, label: L("Undo"), isSelected: false) { model.undo() }
                         .disabled(!model.canUndo)
                         .opacity(model.canUndo ? 1 : 0.35)
-                    BarButton(icon: .redo, label: "Redo", isSelected: false) { model.redo() }
+                    BarButton(icon: .redo, label: L("Redo"), isSelected: false) { model.redo() }
                         .disabled(!model.canRedo)
                         .opacity(model.canRedo ? 1 : 0.35)
                 }

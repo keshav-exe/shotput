@@ -182,17 +182,17 @@ private struct ShelfView: View {
 
     private var title: String {
         switch state.phase {
-        case .idle: "Drop to pin"
-        case .targeted: "Let go to pin"
-        case .pinned: "Pinned"
-        case .alreadyPinned: "Already pinned"
+        case .idle: L("Drop to pin")
+        case .targeted: L("Let go to pin")
+        case .pinned: L("Pinned")
+        case .alreadyPinned: L("Already pinned")
         }
     }
 
     private var subtitle: String {
         switch state.phase {
         case .pinned: "In the menu bar, \(state.count) of \(PinStore.limit)"
-        case .alreadyPinned: "It’s in the menu bar"
+        case .alreadyPinned: L("It’s in the menu bar")
         default: state.count >= PinStore.limit ? "The oldest of \(PinStore.limit) pins makes room" : "Keeps up to \(PinStore.limit) in the menu bar"
         }
     }

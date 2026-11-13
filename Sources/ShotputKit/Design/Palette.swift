@@ -61,14 +61,14 @@ public enum InkColor: Int, CaseIterable {
 
     var name: String {
         switch self {
-        case .red: "Red"
-        case .orange: "Orange"
-        case .yellow: "Yellow"
-        case .green: "Green"
-        case .blue: "Blue"
-        case .violet: "Violet"
-        case .black: "Black"
-        case .white: "White"
+        case .red: L("Red")
+        case .orange: L("Orange")
+        case .yellow: L("Yellow")
+        case .green: L("Green")
+        case .blue: L("Blue")
+        case .violet: L("Violet")
+        case .black: L("Black")
+        case .white: L("White")
         }
     }
 

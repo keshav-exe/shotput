@@ -42,9 +42,9 @@ final class Settings: ObservableObject {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .preview: "Show a preview"
-            case .editor: "Open the editor"
-            case .clipboard: "Copy quietly"
+            case .preview: L("Show a preview")
+            case .editor: L("Open the editor")
+            case .clipboard: L("Copy quietly")
             }
         }
     }
@@ -54,11 +54,11 @@ final class Settings: ObservableObject {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .automatic: "Nearest the pointer"
-            case .bottomLeft: "Bottom left"
-            case .bottomRight: "Bottom right"
-            case .topLeft: "Top left"
-            case .topRight: "Top right"
+            case .automatic: L("Nearest the pointer")
+            case .bottomLeft: L("Bottom left")
+            case .bottomRight: L("Bottom right")
+            case .topLeft: L("Top left")
+            case .topRight: L("Top right")
             }
         }
     }
@@ -68,9 +68,9 @@ final class Settings: ObservableObject {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .firstFew: "First few captures"
-            case .always: "Always"
-            case .never: "Never"
+            case .firstFew: L("First few captures")
+            case .always: L("Always")
+            case .never: L("Never")
             }
         }
     }
@@ -80,9 +80,9 @@ final class Settings: ObservableObject {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .transparent: "None"
-            case .wallpaper: "Wallpaper"
-            case .solid: "Solid colour"
+            case .transparent: L("None")
+            case .wallpaper: L("Wallpaper")
+            case .solid: L("Solid colour")
             }
         }
     }
@@ -105,8 +105,8 @@ final class Settings: ObservableObject {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .discard: "Closes without copying"
-            case .copy: "Copies and closes"
+            case .discard: L("Closes without copying")
+            case .copy: L("Copies and closes")
             }
         }
     }

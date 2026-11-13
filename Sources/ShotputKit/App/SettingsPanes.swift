@@ -9,12 +9,12 @@ final class SettingsWindowController: NSWindowController {
 
         var title: String {
             switch self {
-            case .general: "General"
-            case .capture: "Capture"
-            case .editor: "Editor"
-            case .output: "Output"
-            case .shortcuts: "Shortcuts"
-            case .about: "About"
+            case .general: L("General")
+            case .capture: L("Capture")
+            case .editor: L("Editor")
+            case .output: L("Output")
+            case .shortcuts: L("Shortcuts")
+            case .about: L("About")
             }
         }
 
@@ -86,18 +86,18 @@ struct GeneralPane: View {
             if !canRecordScreen {
                 Section {
                     LabeledContent {
-                        Button("Allow") {
+                        Button(L("Allow")) {
                             if !CGRequestScreenCaptureAccess() { ScreenPermission.openSettings() }
                         }
                     } label: {
-                        Text("Screen Recording is off")
-                        Text("Shotput needs it to take screenshots. Reopen Shotput after you turn it on.")
+                        Text(L("Screen Recording is off"))
+                        Text(L("Shotput needs it to take screenshots. Reopen Shotput after you turn it on."))
                     }
                 }
             }
 
-            Section("Startup") {
-                Toggle("Open Shotput at login", isOn: $opensAtLogin)
+            Section(L("Startup")) {
+                Toggle(L("Open Shotput at login"), isOn: $opensAtLogin)
                     .onChange(of: opensAtLogin) { _, enabled in
                         do {
                             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
@@ -106,37 +106,37 @@ struct GeneralPane: View {
                         }
                     }
                 Toggle(isOn: $settings.showsMenuBarIcon) {
-                    Text("Show in the menu bar")
-                    Text("When hidden, open Shotput again from Applications or Spotlight to get back here.")
+                    Text(L("Show in the menu bar"))
+                    Text(L("When hidden, open Shotput again from Applications or Spotlight to get back here."))
                 }
             }
 
-            Section("Feedback") {
-                Toggle("Play a sound on capture", isOn: $settings.playsSound)
+            Section(L("Feedback")) {
+                Toggle(L("Play a sound on capture"), isOn: $settings.playsSound)
             }
 
-            Section("macOS screenshots") {
+            Section(L("macOS screenshots")) {
                 Toggle(isOn: Binding(
                     get: { settings.screenshotFolder != nil },
                     set: { on in
                         if on { MacScreenshotWatcher.shared.enable() } else { MacScreenshotWatcher.shared.disable() }
                     }
                 )) {
-                    Text("Preview macOS screenshots")
+                    Text(L("Preview macOS screenshots"))
                     Text(macScreenshotsDetail)
                 }
             }
 
             Section {
                 Toggle(isOn: $settings.allowsLinks) {
-                    Text("Allow shotput:// links")
-                    Text("Lets launchers and Logi Options+ Smart Actions start a capture.")
+                    Text(L("Allow shotput:// links"))
+                    Text(L("Lets launchers and Logi Options+ Smart Actions start a capture."))
                 }
             }
 
             Section {
-                LabeledContent("All settings") {
-                    Button("Reset…") { confirmsReset = true }
+                LabeledContent(L("All settings")) {
+                    Button(L("Reset…")) { confirmsReset = true }
                 }
             }
         }
@@ -145,10 +145,10 @@ struct GeneralPane: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             canRecordScreen = CGPreflightScreenCaptureAccess()
         }
-        .confirmationDialog("Reset every setting?", isPresented: $confirmsReset) {
-            Button("Reset", role: .destructive) { settings.resetToDefaults() }
+        .confirmationDialog(L("Reset every setting?"), isPresented: $confirmsReset) {
+            Button(L("Reset"), role: .destructive) { settings.resetToDefaults() }
         } message: {
-            Text("Shortcuts and preferences go back to how Shotput ships. Your save folder stays.")
+            Text(L("Shortcuts and preferences go back to how Shotput ships. Your save folder stays."))
         }
     }
 }
@@ -160,44 +160,44 @@ struct CapturePane: View {
 
     var body: some View {
         Form {
-            Section("While selecting") {
-                Toggle("Show the magnifier", isOn: $settings.showsMagnifier)
-                Toggle("Snap to window edges", isOn: $settings.snapsToEdges)
-                    .help("Hold ⌘ while selecting to place freely either way.")
-                Picker("Show the hint", selection: $settings.selectionHints) {
+            Section(L("While selecting")) {
+                Toggle(L("Show the magnifier"), isOn: $settings.showsMagnifier)
+                Toggle(L("Snap to window edges"), isOn: $settings.snapsToEdges)
+                    .help(L("Hold ⌘ while selecting to place freely either way."))
+                Picker(L("Show the hint"), selection: $settings.selectionHints) {
                     ForEach(Settings.Hints.allCases) { Text($0.title).tag($0) }
                 }
             }
 
-            Section("After a capture") {
-                Picker("Then", selection: $settings.afterCapture) {
+            Section(L("After a capture")) {
+                Picker(L("Then"), selection: $settings.afterCapture) {
                     ForEach(Settings.AfterCapture.allCases) { Text($0.title).tag($0) }
                 }
-                Picker("Preview appears", selection: $settings.previewCorner) {
+                Picker(L("Preview appears"), selection: $settings.previewCorner) {
                     ForEach(Settings.Corner.allCases) { Text($0.title).tag($0) }
                 }
                 .disabled(settings.afterCapture != .preview)
-                Picker("Preview stays", selection: $settings.previewDuration) {
-                    Text("4 seconds").tag(4.0)
-                    Text("6 seconds").tag(6.0)
-                    Text("10 seconds").tag(10.0)
-                    Text("Until dismissed").tag(0.0)
+                Picker(L("Preview stays"), selection: $settings.previewDuration) {
+                    Text(L("4 seconds")).tag(4.0)
+                    Text(L("6 seconds")).tag(6.0)
+                    Text(L("10 seconds")).tag(10.0)
+                    Text(L("Until dismissed")).tag(0.0)
                 }
                 .disabled(settings.afterCapture != .preview)
             }
 
-            Section("Windows") {
-                Toggle("Keep the window’s shadow", isOn: $settings.windowShadow)
-                LabeledContent("Background") {
+            Section(L("Windows")) {
+                Toggle(L("Keep the window’s shadow"), isOn: $settings.windowShadow)
+                LabeledContent(L("Background")) {
                     HStack(spacing: 8) {
                         if settings.windowBackground == .solid {
-                            ColorPicker("Colour", selection: Binding(
+                            ColorPicker(L("Colour"), selection: Binding(
                                 get: { Color(nsColor: settings.windowBackgroundColor) },
                                 set: { settings.windowBackgroundColor = NSColor($0) }
                             ), supportsOpacity: false)
                             .labelsHidden()
                         }
-                        Picker("Background", selection: $settings.windowBackground) {
+                        Picker(L("Background"), selection: $settings.windowBackground) {
                             ForEach(Settings.WindowBackground.allCases) { Text($0.title).tag($0) }
                         }
                         .labelsHidden()
@@ -205,7 +205,7 @@ struct CapturePane: View {
                     }
                 }
                 if settings.windowBackground != .transparent {
-                    LabeledContent("Padding") {
+                    LabeledContent(L("Padding")) {
                         HStack {
                             Slider(value: $settings.windowPadding, in: 0...160, step: 8)
                                 .frame(width: 160)
@@ -218,10 +218,10 @@ struct CapturePane: View {
                 }
             }
 
-            Section("In captures") {
-                Toggle("Include the pointer in screen captures", isOn: $settings.showsPointer)
-                Toggle("Include Shotput’s own windows", isOn: $settings.capturesOwnWindows)
-                    .help("Settings, the editor, and the guide show up in captures. Previews, the pin shelf, and the selection are always left out.")
+            Section(L("In captures")) {
+                Toggle(L("Include the pointer in screen captures"), isOn: $settings.showsPointer)
+                Toggle(L("Include Shotput’s own windows"), isOn: $settings.capturesOwnWindows)
+                    .help(L("Settings, the editor, and the guide show up in captures. Previews, the pin shelf, and the selection are always left out."))
             }
         }
         .formStyle(.grouped)
@@ -232,12 +232,12 @@ struct CapturePane: View {
 extension GeneralPane {
     private var macScreenshotsDetail: String {
         guard settings.screenshotFolder != nil else {
-            return "Shots from ⇧⌘3 and ⇧⌘4 get Shotput’s preview and go on the clipboard."
+            return L("Shots from ⇧⌘3 and ⇧⌘4 get Shotput’s preview and go on the clipboard.")
         }
         if SystemScreenshots.savesToClipboard {
-            return "macOS is set to copy screenshots, not save them. Choose a folder under ⇧⌘5 → Options."
+            return L("macOS is set to copy screenshots, not save them. Choose a folder under ⇧⌘5 → Options.")
         }
-        return "Watching \(settings.screenshotFolder?.lastPathComponent ?? "the folder"). macOS’s own thumbnail is off while this is on."
+        return String(format: L("Watching %@. macOS’s own thumbnail is off while this is on."), settings.screenshotFolder?.lastPathComponent ?? L("the folder"))
     }
 }
 
@@ -249,30 +249,30 @@ struct EditorPane: View {
     var body: some View {
         Form {
             Section {
-                Picker("Esc", selection: $settings.escapeInEditor) {
+                Picker(L("Esc"), selection: $settings.escapeInEditor) {
                     ForEach(Settings.EscapeInEditor.allCases) { Text($0.title).tag($0) }
                 }
-                Toggle("Copy (⌘C) also closes the editor", isOn: $settings.editorClosesOnCopy)
+                Toggle(L("Copy (⌘C) also closes the editor"), isOn: $settings.editorClosesOnCopy)
             } header: {
-                Text("Closing")
+                Text(L("Closing"))
             } footer: {
-                Text("Return always copies and closes. Esc first clears a selection or crop, then closes.")
+                Text(L("Return always copies and closes. Esc first clears a selection or crop, then closes."))
                     .foregroundStyle(.secondary)
             }
 
-            Section("Drawing") {
+            Section(L("Drawing")) {
                 Toggle(isOn: $settings.recognizesShapes) {
-                    Text("Turn sketches into shapes")
-                    Text("A pen stroke that looks like a line, arrow, rectangle, or circle becomes one. ⌘Z keeps the sketch.")
+                    Text(L("Turn sketches into shapes"))
+                    Text(L("A pen stroke that looks like a line, arrow, rectangle, or circle becomes one. ⌘Z keeps the sketch."))
                 }
             }
 
-            Section("Text recognition") {
+            Section(L("Text recognition")) {
                 Toggle(isOn: $settings.ocrKeepsLineBreaks) {
-                    Text("Keep line breaks")
-                    Text("Off joins every line into one, which suits pasting a paragraph.")
+                    Text(L("Keep line breaks"))
+                    Text(L("Off joins every line into one, which suits pasting a paragraph."))
                 }
-                Toggle("Correct spelling while reading", isOn: $settings.ocrLanguageCorrection)
+                Toggle(L("Correct spelling while reading"), isOn: $settings.ocrLanguageCorrection)
             }
         }
         .formStyle(.grouped)
@@ -290,30 +290,30 @@ struct OutputPane: View {
         Form {
             Section {
                 Toggle(isOn: $settings.copyAtPointSize) {
-                    Text("Use standard resolution")
-                    Text("Halves the pixel size on Retina displays. Smaller images are quicker for an agent to read.")
+                    Text(L("Use standard resolution"))
+                    Text(L("Halves the pixel size on Retina displays. Smaller images are quicker for an agent to read."))
                 }
             } header: {
-                Text("Clipboard and files")
+                Text(L("Clipboard and files"))
             }
 
             Section {
-                LabeledContent("Save folder") {
+                LabeledContent(L("Save folder")) {
                     HStack(spacing: Metrics.spacingS) {
                         if let folder = settings.saveFolder {
                             Text(folder.lastPathComponent).foregroundStyle(.secondary)
-                            Button("Clear") { settings.setSaveFolder(nil) }
+                            Button(L("Clear")) { settings.setSaveFolder(nil) }
                         }
-                        Button(settings.saveFolder == nil ? "Choose" : "Change") { chooseFolder() }
+                        Button(settings.saveFolder == nil ? L("Choose") : L("Change")) { chooseFolder() }
                     }
                 }
-                Toggle("Save every capture there", isOn: $settings.savesEveryCapture)
+                Toggle(L("Save every capture there"), isOn: $settings.savesEveryCapture)
                     .disabled(settings.saveFolder == nil)
-                Picker("Format", selection: $settings.saveFormat) {
+                Picker(L("Format"), selection: $settings.saveFormat) {
                     ForEach(Settings.SaveFormat.allCases) { Text($0.title).tag($0) }
                 }
                 if settings.saveFormat != .png {
-                    LabeledContent("Quality") {
+                    LabeledContent(L("Quality")) {
                         HStack {
                             Slider(value: $settings.jpegQuality, in: 0.4...1)
                                 .frame(width: 160)
@@ -325,33 +325,33 @@ struct OutputPane: View {
                     }
                 }
             } header: {
-                Text("Saving")
+                Text(L("Saving"))
             } footer: {
-                Text("The clipboard always gets a PNG. Without a save folder, Save asks where to put the file.")
+                Text(L("The clipboard always gets a PNG. Without a save folder, Save asks where to put the file."))
                     .foregroundStyle(.secondary)
             }
 
             Section {
-                TextField("Template", text: $settings.filenameTemplate, prompt: Text(Settings.defaultTemplate))
+                TextField(L("Template"), text: $settings.filenameTemplate, prompt: Text(Settings.defaultTemplate))
                     .labelsHidden()
                     .font(.body.monospaced())
-                LabeledContent("Example") {
+                LabeledContent(L("Example")) {
                     Text(example)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
                 }
-                LabeledContent("Tokens") {
-                    Button("Insert…") { showsTokens = true }
+                LabeledContent(L("Tokens")) {
+                    Button(L("Insert…")) { showsTokens = true }
                         .popover(isPresented: $showsTokens, arrowEdge: .trailing) { tokenGrid }
                 }
             } header: {
                 HStack {
-                    Text("File name")
+                    Text(L("File name"))
                     Spacer()
                     if settings.filenameTemplate != Settings.defaultTemplate {
-                        Button("Reset") { settings.filenameTemplate = Settings.defaultTemplate }
+                        Button(L("Reset")) { settings.filenameTemplate = Settings.defaultTemplate }
                             .buttonStyle(.link)
                             .font(.caption)
                     }
@@ -410,7 +410,7 @@ struct OutputPane: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.prompt = "Choose"
+        panel.prompt = L("Choose")
         if panel.runModal() == .OK { settings.setSaveFolder(panel.url) }
     }
 }
@@ -437,21 +437,21 @@ struct ShortcutsPane: View {
                     }
                 }
             } footer: {
-                Text("Click a shortcut, then press the new keys. Delete clears it, Esc keeps it.")
+                Text(L("Click a shortcut, then press the new keys. Delete clears it, Esc keeps it."))
                     .foregroundStyle(.secondary)
             }
 
             Section {
                 Toggle(isOn: Binding(get: { settings.usesScreenshotKeys }, set: { settings.setUsesScreenshotKeys($0) })) {
-                    Text("Use ⇧⌘3, ⇧⌘4 and ⇧⌘5")
-                    Text("Screen, area, and area with the editor, on the keys macOS uses for screenshots.")
+                    Text(L("Use ⇧⌘3, ⇧⌘4 and ⇧⌘5"))
+                    Text(L("Screen, area, and area with the editor, on the keys macOS uses for screenshots."))
                 }
                 if settings.usesScreenshotKeys && systemOwnsKeys {
                     LabeledContent {
-                        Button("Open Keyboard Shortcuts") { SystemScreenshots.openKeyboardShortcuts() }
+                        Button(L("Open Keyboard Shortcuts")) { SystemScreenshots.openKeyboardShortcuts() }
                     } label: {
-                        Text("macOS still answers these keys")
-                        Text("Under Screenshots, turn off its screenshot shortcuts.")
+                        Text(L("macOS still answers these keys"))
+                        Text(L("Under Screenshots, turn off its screenshot shortcuts."))
                     }
                 }
             }
@@ -463,10 +463,10 @@ struct ShortcutsPane: View {
 
             Section {
                 LabeledContent {
-                    Button("Show Me How") { (NSApp.delegate as? AppDelegate)?.showOnboarding(.mouse) }
+                    Button(L("Show Me How")) { (NSApp.delegate as? AppDelegate)?.showOnboarding(.mouse) }
                 } label: {
-                    Text("Use a mouse button")
-                    Text("Logi Options+ can press any of these shortcuts for you.")
+                    Text(L("Use a mouse button"))
+                    Text(L("Logi Options+ can press any of these shortcuts for you."))
                 }
             }
         }
@@ -495,21 +495,21 @@ struct AboutPane: View {
                 .frame(width: 88, height: 88)
             VStack(spacing: Metrics.spacingXS) {
                 Text("Shotput").font(.title2.weight(.semibold))
-                Text("Version \(version)").foregroundStyle(.secondary).textSelection(.enabled)
+                Text(String(format: L("Version %@"), version)).foregroundStyle(.secondary).textSelection(.enabled)
             }
-            Text("Free and open source under the MIT licence. Shotput itself has no network access. Updates come through a separate helper that only fetches signed releases from GitHub.")
+            Text(L("Free and open source under the MIT licence. Shotput itself has no network access. Updates come through a separate helper that only fetches signed releases from GitHub."))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 400)
                 .fixedSize(horizontal: false, vertical: true)
-            Toggle("Install updates automatically", isOn: Binding(get: { updates.isAutomatic }, set: { updates.isAutomatic = $0 }))
+            Toggle(L("Install updates automatically"), isOn: Binding(get: { updates.isAutomatic }, set: { updates.isAutomatic = $0 }))
                 .toggleStyle(.checkbox)
             HStack(spacing: Metrics.spacingS) {
-                Button("Check for Updates") { updates.checkNow() }
+                Button(L("Check for Updates")) { updates.checkNow() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!updates.canCheck)
-                Button("Source Code") { NSWorkspace.shared.open(Self.repository) }
-                Button("Report an Issue") { NSWorkspace.shared.open(Self.repository.appendingPathComponent("issues/new")) }
+                Button(L("Source Code")) { NSWorkspace.shared.open(Self.repository) }
+                Button(L("Report an Issue")) { NSWorkspace.shared.open(Self.repository.appendingPathComponent("issues/new")) }
             }
         }
         .padding(.vertical, 36)

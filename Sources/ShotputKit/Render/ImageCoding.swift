@@ -51,10 +51,10 @@ public enum ImageCoding {
 
     /// Tokens accepted in the file name template, with what each one stands for.
     static let templateTokens: [(token: String, meaning: String)] = [
-        ("%Y", "Year, 2026"), ("%y", "Year, 26"), ("%m", "Month, 07"), ("%b", "Month, Jul"),
-        ("%B", "Month, July"), ("%d", "Day, 09"), ("%j", "Day of year, 190"), ("%A", "Weekday, Friday"),
-        ("%a", "Weekday, Fri"), ("%H", "Hour, 17"), ("%I", "Hour, 05"), ("%p", "AM or PM"),
-        ("%M", "Minute, 08"), ("%S", "Second, 04"), ("%n", "App name"), ("%r", "Random, k3qz"),
+        ("%Y", L("Year, 2026")), ("%y", L("Year, 26")), ("%m", L("Month, 07")), ("%b", L("Month, Jul")),
+        ("%B", L("Month, July")), ("%d", L("Day, 09")), ("%j", L("Day of year, 190")), ("%A", L("Weekday, Friday")),
+        ("%a", L("Weekday, Fri")), ("%H", L("Hour, 17")), ("%I", L("Hour, 05")), ("%p", L("AM or PM")),
+        ("%M", L("Minute, 08")), ("%S", L("Second, 04")), ("%n", L("App name")), ("%r", L("Random, k3qz")),
     ]
 
     /// Expands a template such as `Shotput %Y-%m-%d` into a file name without an extension.

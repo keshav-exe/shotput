@@ -24,11 +24,17 @@ struct WelcomeFilm: View {
 
     private enum ShotPlace { case hidden, selection, corner, chat }
 
-    private enum Caption: String {
-        case press = "Press the shortcut in any app"
-        case drag = "The screen holds still while you drag"
-        case copied = "It’s on the clipboard already"
-        case paste = "Paste it wherever you’re working"
+    private enum Caption {
+        case press, drag, copied, paste
+
+        var text: String {
+            switch self {
+            case .press: L("Press the shortcut in any app")
+            case .drag: L("The screen holds still while you drag")
+            case .copied: L("It’s on the clipboard already")
+            case .paste: L("Paste it wherever you’re working")
+            }
+        }
     }
 
     // Layout of the miniature desktop.
@@ -62,7 +68,7 @@ struct WelcomeFilm: View {
         .environment(\.colorScheme, .light)
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.ink.color.opacity(0.1)))
         .accessibilityElement()
-        .accessibilityLabel("A short animation: press the shortcut, drag over part of the screen, and paste the screenshot into a chat.")
+        .accessibilityLabel(L("A short animation: press the shortcut, drag over part of the screen, and paste the screenshot into a chat."))
         .task(id: settings.shortcuts[.area]) { await play() }
     }
 
@@ -115,7 +121,7 @@ struct WelcomeFilm: View {
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white))
                 .frame(width: chatInput.width, height: chatInput.height)
                 .overlay(alignment: .leading) {
-                    Text(sent ? "" : "Message").font(.system(size: 8)).foregroundStyle(.tertiary).padding(.leading, 8)
+                    Text(sent ? "" : L("Message")).font(.system(size: 8)).foregroundStyle(.tertiary).padding(.leading, 8)
                 }
                 .offset(x: chatInput.minX, y: chatInput.minY)
         }
@@ -238,7 +244,7 @@ struct WelcomeFilm: View {
     }
 
     private var subtitle: some View {
-        Text(caption.rawValue)
+        Text(caption.text)
             .font(.callout.weight(.medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 12).padding(.vertical, 6)

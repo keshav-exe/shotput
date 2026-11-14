@@ -237,7 +237,10 @@ extension GeneralPane {
         if SystemScreenshots.savesToClipboard {
             return "macOS is set to copy screenshots, not save them. Choose a folder under ⇧⌘5 → Options."
         }
-        return "Watching \(settings.screenshotFolder?.lastPathComponent ?? "the folder"). macOS’s own thumbnail is off while this is on."
+        let folder = settings.screenshotFolder?.lastPathComponent ?? "the folder"
+        return MacScreenshotWatcher.shared.holdsThumbnailOff
+            ? "Watching \(folder). macOS’s thumbnail is off so ⇧⌘3 and ⇧⌘4 land at once."
+            : "Watching \(folder). macOS keeps its thumbnail while ⇧⌘5 is its own, so recordings are untouched."
     }
 }
 
@@ -420,6 +423,19 @@ struct OutputPane: View {
 struct ShortcutsPane: View {
     @ObservedObject private var settings = Settings.shared
     @State private var systemOwnsKeys = false
+    @State private var systemOwnsFive = false
+
+    private func readSystemKeys() {
+        systemOwnsKeys = SystemScreenshots.ownsScreenshotKeys
+        systemOwnsFive = SystemScreenshots.answers(.toolbar)
+    }
+
+    private var keysToTurnOff: String {
+        var keys: [String] = []
+        if settings.usesScreenshotKeys && systemOwnsKeys { keys += ["⇧⌘3", "⇧⌘4"] }
+        if settings.usesCaptureBar && systemOwnsFive { keys.append("⇧⌘5") }
+        return keys.joined(separator: keys.count > 2 ? ", " : " and ")
+    }
 
     var body: some View {
         Form {
@@ -443,21 +459,25 @@ struct ShortcutsPane: View {
 
             Section {
                 Toggle(isOn: Binding(get: { settings.usesScreenshotKeys }, set: { settings.setUsesScreenshotKeys($0) })) {
-                    Text("Use ⇧⌘3, ⇧⌘4 and ⇧⌘5")
-                    Text("Screen, area, and area with the editor, on the keys macOS uses for screenshots.")
+                    Text("Use ⇧⌘3 and ⇧⌘4")
+                    Text("Screen and area, on the keys macOS uses for screenshots.")
                 }
-                if settings.usesScreenshotKeys && systemOwnsKeys {
+                Toggle(isOn: Binding(get: { settings.usesCaptureBar }, set: { settings.setUsesCaptureBar($0) })) {
+                    Text("Open the capture bar with ⇧⌘5")
+                    Text("Shotput’s captures beside macOS’s own recorder. Off leaves ⇧⌘5 to macOS.")
+                }
+                if (settings.usesScreenshotKeys && systemOwnsKeys) || (settings.usesCaptureBar && systemOwnsFive) {
                     LabeledContent {
                         Button("Open Keyboard Shortcuts") { SystemScreenshots.openKeyboardShortcuts() }
                     } label: {
                         Text("macOS still answers these keys")
-                        Text("Under Screenshots, turn off its screenshot shortcuts.")
+                        Text("Under Screenshots, turn off \(keysToTurnOff).")
                     }
                 }
             }
-            .onAppear { systemOwnsKeys = SystemScreenshots.ownsScreenshotKeys }
+            .onAppear(perform: readSystemKeys)
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                systemOwnsKeys = SystemScreenshots.ownsScreenshotKeys
+                readSystemKeys()
                 HotKeyCenter.reload()
             }
 

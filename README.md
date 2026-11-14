@@ -37,8 +37,8 @@ The first launch opens a short guide, with your wallpaper behind it:
 
 1. A few seconds of Shotput at work.
 2. Screen Recording.
-3. Whether Shotput becomes your screenshot tool. If you say yes, it takes ⇧⌘3, ⇧⌘4 and ⇧⌘5 and
-   shows you how to switch off whatever still answers those keys.
+3. Whether Shotput becomes your screenshot tool. If you say yes, it takes ⇧⌘3 and ⇧⌘4 and shows
+   you how to switch off whatever still answers those keys. ⇧⌘5 stays with macOS.
 4. Your shortcuts.
 5. Setting up a mouse button.
 6. Opening at login and automatic updates.
@@ -72,7 +72,7 @@ one button both starts and cancels.
 
 Launchers and Smart Actions can also open links: `shotput://area`, `shotput://annotate`,
 `shotput://window`, `shotput://text`, `shotput://last`, `shotput://clipboard`,
-`shotput://settings`. Turn links off under Settings → General.
+`shotput://bar`, `shotput://settings`. Turn links off under Settings → General.
 
 ## Selecting
 
@@ -102,14 +102,19 @@ separately.
 
 - **Keep the macOS keys, get Shotput's preview.** Turn on Settings → General → Preview macOS
   screenshots and allow the folder macOS saves to (Desktop, unless you changed it). Every ⇧⌘3
-  and ⇧⌘4 shot then gets Shotput's preview and goes on the clipboard, and macOS's own floating
-  thumbnail is turned off while this is on, because the file isn't written until it goes away.
-  Shots macOS copies instead of saving, such as ⌃⇧⌘4, don't make a file, so they are not seen.
-- **Give Shotput the keys.** Turn on Settings → Shortcuts → Use ⇧⌘3, ⇧⌘4 and ⇧⌘5. Capture
-  screen, Capture area, and Capture area and annotate move onto them. macOS keeps answering
-  those keys until you turn its screenshot shortcuts off under System Settings → Keyboard →
-  Keyboard Shortcuts → Screenshots, and Settings has a button that opens it. Turning the option
-  off again puts your old shortcuts back.
+  and ⇧⌘4 shot then gets Shotput's preview and goes on the clipboard. macOS's floating thumbnail
+  holds each file back until it goes away, so Shotput turns it off, but only while macOS answers
+  ⇧⌘3 or ⇧⌘4 and not ⇧⌘5. The thumbnail is how macOS's recordings get their preview and trim,
+  so Shotput never takes it away from ⇧⌘5. Shots macOS copies instead of saving, such as ⌃⇧⌘4,
+  don't make a file, so they are not seen.
+- **Give Shotput the keys.** Turn on Settings → Shortcuts → Use ⇧⌘3 and ⇧⌘4. Capture screen and
+  Capture area move onto them. macOS keeps answering those keys until you turn its screenshot
+  shortcuts off under System Settings → Keyboard → Keyboard Shortcuts → Screenshots, and
+  Settings has a button that opens it. Turning the option off again puts your old shortcuts back.
+- **Optionally, the capture bar on ⇧⌘5.** Off unless you turn on Settings → Shortcuts → Open the
+  capture bar with ⇧⌘5. The bar puts Shotput's area, window and screen captures beside macOS's
+  own recorder: Record opens macOS's toolbar in that mode, and the recording, its thumbnail and
+  its stop button are all macOS's. Press 1 to 5 to pick, Return for the last one, Esc to close.
 
 ## Pins
 
@@ -158,7 +163,7 @@ The toolbar can also copy the text in the screenshot, read on your Mac.
 | Capture | The magnifier, edge snapping, selection hints, what follows a capture, where the preview sits and how long it stays, window shadows, a wallpaper or colour behind window captures, the pointer in screen captures, and whether Shotput's own windows can be captured. |
 | Editor | What Esc does, whether ⌘C also closes, turning sketches into shapes, and how text recognition joins lines. |
 | Output | Standard resolution, the save folder, saving every capture, PNG, JPEG or HEIC with a quality slider, and a file name template such as `%n %Y-%m-%d %H.%M.%S`. |
-| Shortcuts | Every action above, taking over ⇧⌘3, ⇧⌘4 and ⇧⌘5, and the mouse button guide. |
+| Shortcuts | Every action above, taking over ⇧⌘3 and ⇧⌘4, the optional capture bar on ⇧⌘5, and the mouse button guide. |
 | About | The version, automatic updates, and Check for Updates. |
 
 ## Privacy and footprint
@@ -170,8 +175,9 @@ The toolbar can also copy the text in the screenshot, read on your Mac.
 - It can write only to a folder you choose, or a location you pick in a save panel. It reads
   the macOS screenshot folder only after you allow it.
 - Outside its own settings it reads two system ones: where macOS saves screenshots, and whether
-  macOS still owns ⇧⌘3 to ⇧⌘5. The only one it changes is macOS's floating thumbnail, and it
-  puts that back when you turn the preview off.
+  macOS still owns ⇧⌘3 to ⇧⌘5. It changes macOS's floating thumbnail, and puts it back when you
+  turn the preview off or quit, and the mode macOS's toolbar opens in when you record from the
+  capture bar.
 - Links can only start captures that put a selection on screen. A silent full-screen capture is
   shortcut only, so another app cannot use Shotput to read your screen.
 - Idle, it uses no CPU and about 15 MB of memory. Hotkeys are event driven and nothing polls.

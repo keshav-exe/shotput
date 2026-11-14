@@ -68,6 +68,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         HotKeyCenter.reload()
         Updates.shared.start()
         if Settings.shared.screenshotFolder != nil { MacScreenshotWatcher.shared.start() }
+        // Also gives macOS its thumbnail back where an earlier Shotput left it off and shouldn't have.
+        MacScreenshotWatcher.shared.syncThumbnail()
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { _ in MacScreenshotWatcher.shared.syncThumbnail() }
+            .store(in: &subscriptions)
 
         if Settings.shared.consumeFirstLaunch() {
             OnboardingProgress.reset()
@@ -79,6 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             // Screen Recording.
             showOnboarding(step)
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MacScreenshotWatcher.shared.restoreThumbnailOnQuit()
     }
 
     /// The menu bar icon blinks like a shutter on each capture. It is the only feedback when
@@ -124,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         case "last": HotAction.annotateLast.perform()
         case "text": HotAction.text.perform()
         case "clipboard": HotAction.annotateClipboard.perform()
+        case "bar": HotAction.toolbar.perform()
         case "settings": showSettings(nil)
         default: break
         }
@@ -155,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(.separator())
         add(.annotateLast, #selector(annotateLast))
         add(.annotateClipboard, #selector(annotateClipboard))
+        if shortcuts[.toolbar]?.isSet == true { add(.toolbar, #selector(openCaptureBar)) }
         menu.addItem(.separator())
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settings.target = self
@@ -196,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func repeatArea() { HotAction.repeatArea.perform() }
     @objc private func copyText() { HotAction.text.perform() }
     @objc private func annotateClipboard() { CaptureCoordinator.shared.annotateClipboard() }
+    @objc private func openCaptureBar() { CaptureBar.shared.show() }
 
     // MARK: Settings and the welcome guide
 

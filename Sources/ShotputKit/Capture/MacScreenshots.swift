@@ -32,16 +32,36 @@ enum SystemScreenshots {
         }
     }
 
-    /// Whether macOS still answers ⇧⌘3, ⇧⌘4 or ⇧⌘5 itself. Shotput only hears those keys once
-    /// they're turned off under Keyboard Shortcuts → Screenshots.
-    static var ownsScreenshotKeys: Bool {
+    /// macOS's own screenshot keys, by their number in its symbolic hotkeys.
+    enum Key: String {
+        case screen = "28", area = "30", toolbar = "184"
+    }
+
+    /// Whether macOS still answers ⇧⌘3 or ⇧⌘4 itself. Shotput only hears those keys once they're
+    /// turned off under Keyboard Shortcuts → Screenshots. ⇧⌘5 is macOS's unless the capture bar is on.
+    static var ownsScreenshotKeys: Bool { answers(.screen) || answers(.area) }
+
+    /// Whether macOS still answers this one key. A missing entry means it is on, as it ships.
+    static func answers(_ key: Key) -> Bool {
         let hotkeys = CFPreferencesCopyAppValue("AppleSymbolicHotKeys" as CFString, "com.apple.symbolichotkeys" as CFString)
             as? [String: Any] ?? [:]
-        // 28 is ⇧⌘3, 30 is ⇧⌘4, 184 is ⇧⌘5. A missing entry means it is on, as it ships.
-        return ["28", "30", "184"].contains { id in
-            guard let entry = hotkeys[id] as? [String: Any] else { return true }
-            return (entry["enabled"] as? Bool) ?? (entry["enabled"] as? Int).map { $0 != 0 } ?? true
-        }
+        guard let entry = hotkeys[key.rawValue] as? [String: Any] else { return true }
+        return (entry["enabled"] as? Bool) ?? (entry["enabled"] as? Int).map { $0 != 0 } ?? true
+    }
+
+    enum Recording { case area, screen }
+
+    /// Opens macOS's own toolbar, the one ⇧⌘5 shows, already set to record an area or the screen.
+    /// The recording is entirely macOS's, with its own thumbnail on for that session.
+    @MainActor
+    static func openToolbar(recording: Recording) {
+        // The toolbar starts in the mode it was last left in, which it keeps in these two values.
+        CFPreferencesSetAppValue("video" as CFString, kCFBooleanTrue, domain)
+        CFPreferencesSetAppValue("style" as CFString, (recording == .area ? "selection" : "display") as CFString, domain)
+        CFPreferencesAppSynchronize(domain)
+        MacScreenshotWatcher.shared.handOffToToolbar()
+        let app = URL(fileURLWithPath: "/System/Applications/Utilities/Screenshot.app")
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration()) { _, _ in }
     }
 
     /// Other screenshot apps that are open and may hold the same keys.
@@ -65,13 +85,14 @@ enum SystemScreenshots {
     }
 }
 
-/// Shotput's own shortcuts on the keys macOS uses for screenshots.
+/// Shotput's own shortcuts on the keys macOS uses for screenshots. ⇧⌘5 stays with macOS, for
+/// recording, unless the capture bar is turned on.
 enum ScreenshotKeys {
     static let bindings: [HotAction: Shortcut] = [
         .screen: Shortcut(keyCode: kVK_ANSI_3, [.shift, .command]),
         .area: Shortcut(keyCode: kVK_ANSI_4, [.shift, .command]),
-        .areaAnnotate: Shortcut(keyCode: kVK_ANSI_5, [.shift, .command]),
     ]
+    static let captureBar = Shortcut(keyCode: kVK_ANSI_5, [.shift, .command])
 
     static func isTaken(_ shortcuts: [HotAction: Shortcut]) -> Bool {
         bindings.allSatisfy { shortcuts[$0.key] == $0.value }
@@ -80,6 +101,10 @@ enum ScreenshotKeys {
 
 /// Watches the folder macOS saves screenshots to and gives each new one Shotput's preview, as if
 /// Shotput had taken it. Event driven: the folder is watched with a vnode source, nothing polls.
+///
+/// macOS's floating thumbnail holds each file back for about five seconds, so Shotput turns it
+/// off, but only while macOS itself still answers ⇧⌘3 or ⇧⌘4 and not ⇧⌘5. The thumbnail is how
+/// macOS's recordings get their preview and trim, and Shotput never takes that away.
 @MainActor
 final class MacScreenshotWatcher {
     static let shared = MacScreenshotWatcher()
@@ -89,6 +114,95 @@ final class MacScreenshotWatcher {
     private var seen = Set<String>()
     private var since = Date()
     private var pendingScan: DispatchWorkItem?
+    /// macOS's screenshot UI. It starts on demand, reads the thumbnail setting as it starts, and
+    /// quits a few seconds after each session.
+    private static let systemUI = "com.apple.screencaptureui"
+    private var appsObservation: NSKeyValueObservation?
+    /// Whether the session macOS is running, or ran moments ago, shows its own thumbnail. Files
+    /// it saves then have had their preview, so Shotput leaves them alone.
+    private var sessionShowsThumbnail = false
+    private var sessionEnded: Date?
+    /// Set while Shotput has handed a session to macOS's toolbar with the thumbnail turned back on.
+    private var handOffUntil: Date?
+
+    private init() {
+        // Keyed off the app list, which changes only as apps start and quit: nothing polls.
+        var wasRunning = Self.systemUIRunning
+        appsObservation = NSWorkspace.shared.observe(\.runningApplications) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let running = Self.systemUIRunning
+                guard running != wasRunning else { return }
+                wasRunning = running
+                running ? self.systemSessionBegan() : self.systemSessionEnded()
+            }
+        }
+    }
+
+    private static var systemUIRunning: Bool {
+        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == systemUI }
+    }
+
+    private func systemSessionBegan() {
+        sessionShowsThumbnail = SystemScreenshots.showsThumbnail
+        sessionEnded = nil
+    }
+
+    private func systemSessionEnded() {
+        sessionEnded = Date()
+        handOffUntil = nil
+        syncThumbnail()
+    }
+
+    private var macOSShowedThumbnail: Bool {
+        guard sessionShowsThumbnail else { return false }
+        guard let sessionEnded else { return true }
+        return Date().timeIntervalSince(sessionEnded) < 10
+    }
+
+    // MARK: The thumbnail
+
+    /// Turns macOS's thumbnail off when Shotput previews its ⇧⌘3 and ⇧⌘4 shots and macOS can't be
+    /// recording through ⇧⌘5, and gives it back whenever that stops being true. Safe to call any
+    /// time; it changes nothing that is right.
+    func syncThumbnail() {
+        let owes = UserDefaults.standard.bool(forKey: Settings.Key.restoresMacThumbnail)
+        let handingOff = handOffUntil.map { $0 > Date() } ?? false
+        let wantsOff = source != nil && !handingOff
+            && (SystemScreenshots.answers(.screen) || SystemScreenshots.answers(.area))
+            && !SystemScreenshots.answers(.toolbar)
+        if wantsOff, SystemScreenshots.showsThumbnail {
+            SystemScreenshots.showsThumbnail = false
+            UserDefaults.standard.set(true, forKey: Settings.Key.restoresMacThumbnail)
+        } else if !wantsOff, owes {
+            if !handingOff { UserDefaults.standard.removeObject(forKey: Settings.Key.restoresMacThumbnail) }
+            SystemScreenshots.showsThumbnail = true
+        }
+    }
+
+    /// Whether Shotput currently holds macOS's thumbnail off.
+    var holdsThumbnailOff: Bool {
+        UserDefaults.standard.bool(forKey: Settings.Key.restoresMacThumbnail) && !SystemScreenshots.showsThumbnail
+    }
+
+    /// Before macOS's toolbar opens: thumbnail on for that one session, off again once it ends.
+    func handOffToToolbar() {
+        guard UserDefaults.standard.bool(forKey: Settings.Key.restoresMacThumbnail) else { return }
+        // The session ends when macOS's UI quits. If it never starts, give up after a while.
+        handOffUntil = Date().addingTimeInterval(20)
+        SystemScreenshots.showsThumbnail = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 21) { [weak self] in
+            guard let self, !Self.systemUIRunning else { return }
+            self.syncThumbnail()
+        }
+    }
+
+    /// Gives macOS its thumbnail back as Shotput quits, whatever the reason it was off.
+    func restoreThumbnailOnQuit() {
+        guard UserDefaults.standard.bool(forKey: Settings.Key.restoresMacThumbnail) else { return }
+        SystemScreenshots.showsThumbnail = true
+        UserDefaults.standard.removeObject(forKey: Settings.Key.restoresMacThumbnail)
+    }
 
     /// Starts watching the folder in the saved bookmark. Returns false when there is no
     /// bookmark yet or it no longer resolves.
@@ -112,6 +226,7 @@ final class MacScreenshotWatcher {
         source.setCancelHandler { close(descriptor) }
         source.resume()
         self.source = source
+        syncThumbnail()
         return true
     }
 
@@ -124,7 +239,8 @@ final class MacScreenshotWatcher {
     }
 
     /// Asks for the screenshot folder in an open panel, the only way the sandbox lets Shotput
-    /// read it, then starts watching. Turns macOS's own thumbnail off so the file lands at once.
+    /// read it, then starts watching. Turns macOS's own thumbnail off where Shotput needs the file
+    /// at once, see `syncThumbnail`.
     @discardableResult
     func enable() -> Bool {
         let panel = NSOpenPanel()
@@ -136,19 +252,12 @@ final class MacScreenshotWatcher {
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url else { return false }
         Settings.shared.setScreenshotFolder(url)
-        if SystemScreenshots.showsThumbnail {
-            UserDefaults.standard.set(true, forKey: Settings.Key.restoresMacThumbnail)
-            SystemScreenshots.showsThumbnail = false
-        }
         return start()
     }
 
     func disable() {
         stop()
-        if UserDefaults.standard.bool(forKey: Settings.Key.restoresMacThumbnail) {
-            SystemScreenshots.showsThumbnail = true
-            UserDefaults.standard.removeObject(forKey: Settings.Key.restoresMacThumbnail)
-        }
+        syncThumbnail()
         Settings.shared.setScreenshotFolder(nil)
     }
 
@@ -184,7 +293,8 @@ final class MacScreenshotWatcher {
             }
         }
         if waiting { scheduleScan(after: 0.25) }
-        guard let chosen = Self.pick(screenshots) else { return }
+        // macOS already showed these in its own thumbnail. A second preview would only repeat it.
+        guard !macOSShowedThumbnail, let chosen = Self.pick(screenshots) else { return }
         let appName = NSWorkspace.shared.frontmostApplication?.localizedName
         DispatchQueue.global(qos: .userInitiated).async {
             guard let capture = Self.load(chosen) else { return }

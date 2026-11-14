@@ -35,6 +35,8 @@ final class Settings: ObservableObject {
         static let macScreenshotFolder = "macScreenshotFolderBookmark"
         static let restoresMacThumbnail = "restoresMacThumbnail"
         static let shortcutsBeforeScreenshotKeys = "shortcutsBeforeScreenshotKeys"
+        static let shortcutsBeforeCaptureBar = "shortcutsBeforeCaptureBar"
+        static let captureBarMode = "captureBarMode"
     }
 
     enum AfterCapture: String, CaseIterable, Identifiable {
@@ -304,11 +306,11 @@ final class Settings: ObservableObject {
         screenshotFolder = url
     }
 
-    /// Whether ⇧⌘3, ⇧⌘4 and ⇧⌘5 are Shotput's.
+    /// Whether ⇧⌘3 and ⇧⌘4 are Shotput's.
     var usesScreenshotKeys: Bool { ScreenshotKeys.isTaken(shortcuts) }
 
-    /// Puts Shotput's screen, area, and annotate captures on the keys macOS uses for screenshots,
-    /// and back to what they were before.
+    /// Puts Shotput's screen and area captures on the keys macOS uses for screenshots, and back
+    /// to what they were before. ⇧⌘5 is left to macOS; see `setUsesCaptureBar`.
     func setUsesScreenshotKeys(_ on: Bool) {
         if on {
             let before = Dictionary(uniqueKeysWithValues: ScreenshotKeys.bindings.keys.map { ($0.rawValue, shortcuts[$0] ?? Shortcut.none) })
@@ -325,9 +327,38 @@ final class Settings: ObservableObject {
             for action in ScreenshotKeys.bindings.keys {
                 next[action] = before[action.rawValue] ?? action.defaultShortcut
             }
+            // Earlier versions also put annotate on ⇧⌘5. Give that back too.
+            if let annotate = before[HotAction.areaAnnotate.rawValue], next[.areaAnnotate] == ScreenshotKeys.captureBar {
+                next[.areaAnnotate] = annotate
+            }
             shortcuts = next
             defaults.removeObject(forKey: Key.shortcutsBeforeScreenshotKeys)
         }
+    }
+
+    /// Whether ⇧⌘5 opens Shotput's capture bar. Off unless turned on in Settings.
+    var usesCaptureBar: Bool { shortcuts[.toolbar] == ScreenshotKeys.captureBar }
+
+    func setUsesCaptureBar(_ on: Bool) {
+        let five = ScreenshotKeys.captureBar
+        var next = shortcuts
+        if on {
+            // Whatever held ⇧⌘5 lets go of it, and gets it back when the bar is turned off.
+            let holders = next.filter { $0.value == five }.map(\.key)
+            let before = Dictionary(uniqueKeysWithValues: holders.map { ($0.rawValue, five) })
+            defaults.set(try? JSONEncoder().encode(before), forKey: Key.shortcutsBeforeCaptureBar)
+            for action in holders { next[action] = Shortcut.none }
+            next[.toolbar] = five
+        } else {
+            next[.toolbar] = Shortcut.none
+            let before = defaults.data(forKey: Key.shortcutsBeforeCaptureBar)
+                .flatMap { try? JSONDecoder().decode([String: Shortcut].self, from: $0) } ?? [:]
+            for (name, shortcut) in before {
+                if let action = HotAction(rawValue: name), next[action] == Shortcut.none { next[action] = shortcut }
+            }
+            defaults.removeObject(forKey: Key.shortcutsBeforeCaptureBar)
+        }
+        shortcuts = next
     }
 
     // MARK: First-run touches

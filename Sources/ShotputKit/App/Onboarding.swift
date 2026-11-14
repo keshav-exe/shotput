@@ -195,7 +195,7 @@ final class OnboardingState: ObservableObject {
     }
 }
 
-/// Who else answers ⇧⌘3, ⇧⌘4 and ⇧⌘5, checked live while the hand-off step is open.
+/// Who else answers ⇧⌘3 and ⇧⌘4, checked live while the hand-off step is open.
 struct HandoffStatus: Equatable {
     var macOSOwnsKeys: Bool
     var taken: [HotAction]
@@ -453,13 +453,13 @@ private struct DefaultToolStep: View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
                 title: "Make Shotput your screenshot tool?",
-                message: "Then ⇧⌘3, ⇧⌘4 and ⇧⌘5 open Shotput instead of the tool you use now. You can change this later in Settings."
+                message: "Then ⇧⌘3 and ⇧⌘4 open Shotput instead of the tool you use now. ⇧⌘5 stays with macOS for recording. You can change this later in Settings."
             )
             VStack(spacing: 10) {
                 ChoiceCard(
                     selected: state.makesDefault,
                     title: "Yes, use Shotput",
-                    detail: "⇧⌘4 for an area, ⇧⌘3 for the screen, ⇧⌘5 to annotate.",
+                    detail: "⇧⌘4 for an area, ⇧⌘3 for the screen.",
                     tag: "Recommended"
                 ) { state.makesDefault = true }
                 ChoiceCard(
@@ -542,11 +542,11 @@ private struct HandoffStep: View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
                 title: "Hand over the keys",
-                message: "macOS answers ⇧⌘3, ⇧⌘4 and ⇧⌘5 before any app hears them. Turn its shortcuts off and they’re Shotput’s."
+                message: "macOS answers ⇧⌘3 and ⇧⌘4 before any app hears them. Turn its shortcuts off and they’re Shotput’s."
             )
 
             SettingCard(icon: .keyboard, title: "macOS screenshot shortcuts", detail: status.macOSOwnsKeys
-                ? "Keyboard Shortcuts → Screenshots. Untick ⇧⌘3, ⇧⌘4 and ⇧⌘5. Leave the clipboard ones on."
+                ? "Keyboard Shortcuts → Screenshots. Untick ⇧⌘3 and ⇧⌘4. Leave the rest on."
                 : "Turned off. The keys reach Shotput now.") {
                 if status.macOSOwnsKeys {
                     Button("Open…") { SystemScreenshots.openKeyboardShortcuts() }

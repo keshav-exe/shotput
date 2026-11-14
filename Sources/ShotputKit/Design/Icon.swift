@@ -44,6 +44,8 @@ enum Icon: String {
     case power = "power"
     case lock = "lock"
     case warning = "exclamationmark.triangle.fill"
+    case toolbar = "rectangle.bottomthird.inset.filled"
+    case areaDashed = "rectangle.dashed"
 
     /// The symbol at the size its surroundings choose, as toolbars, tabs, and menus expect.
     func plain(label: String? = nil) -> NSImage {

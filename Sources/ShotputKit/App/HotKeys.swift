@@ -82,7 +82,7 @@ struct Shortcut: Codable, Equatable {
 
 /// Things a shortcut, a mouse button, or a URL can trigger.
 enum HotAction: String, CaseIterable, Identifiable {
-    case area, areaAnnotate, window, screen, annotateLast, repeatArea, text, annotateClipboard
+    case area, areaAnnotate, window, screen, annotateLast, repeatArea, text, annotateClipboard, toolbar
 
     var id: String { rawValue }
 
@@ -96,6 +96,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .repeatArea: "Repeat last area"
         case .text: "Copy text from area"
         case .annotateClipboard: "Annotate clipboard image"
+        case .toolbar: "Capture bar"
         }
     }
 
@@ -109,6 +110,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .repeatArea: .refresh
         case .text: .readText
         case .annotateClipboard: .clipboard
+        case .toolbar: .toolbar
         }
     }
 
@@ -123,6 +125,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .repeatArea: "Captures the same area as last time, with no selection."
         case .text: "Drag over any text and it is copied as text."
         case .annotateClipboard: "Opens the image on the clipboard in the editor."
+        case .toolbar: "Shotput’s captures and macOS’s own recorder, in one bar."
         }
     }
 
@@ -135,7 +138,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .screen: Shortcut(keyCode: kVK_ANSI_S, hyper)
         case .annotateLast: Shortcut(keyCode: kVK_ANSI_E, hyper)
         case .text: Shortcut(keyCode: kVK_ANSI_T, hyper)
-        case .repeatArea, .annotateClipboard: .none
+        case .repeatArea, .annotateClipboard, .toolbar: .none
         }
     }
 
@@ -151,6 +154,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .repeatArea: coordinator.repeatLastArea()
         case .text: coordinator.capture(.area, readText: true)
         case .annotateClipboard: coordinator.annotateClipboard()
+        case .toolbar: CaptureBar.shared.toggle()
         }
     }
 }

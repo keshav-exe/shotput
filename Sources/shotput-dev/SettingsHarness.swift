@@ -53,6 +53,10 @@ func settingsHarness(to path: String) {
         expect(size.height <= tallest, "\(pane.title) tab is \(Int(size.height))pt tall")
     }
 
+    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+        _ = render(CaptureBarView(defaultMode: .area) { _ in }.background(Color.gray), name: "capture-bar", width: nil, appearance: appearance)
+    }
+
     for step in OnboardingWindowController.Step.allCases {
         let state = OnboardingState(step: step)
         _ = render(OnboardingView(state: state).background(Color(nsColor: Palette.background)),

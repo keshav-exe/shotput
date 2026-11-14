@@ -53,7 +53,7 @@ struct StageView: View {
         case .permission: PermissionScene(granted: state.screenRecordingAllowed)
         case .defaultTool:
             state.makesDefault
-                ? KeyboardScene(lit: ["⇧", "⌘", "3", "4", "5"], cycle: ["3", "4", "5"])
+                ? KeyboardScene(lit: ["⇧", "⌘", "3", "4"], cycle: ["3", "4"])
                 : KeyboardScene(lit: ["⌃", "⌥", "⌘", "A"], cycle: ["A"])
         case .handoff: HandoffScene(macOSOwns: state.handoff.macOSOwnsKeys)
         case .shortcuts: ShortcutKeyboardScene()
@@ -251,7 +251,7 @@ private struct HandoffScene: View {
         ("Copy picture of screen to the clipboard", "⌃⇧⌘3", false),
         ("Save picture of selected area as a file", "⇧⌘4", true),
         ("Copy picture of selected area to the clipboard", "⌃⇧⌘4", false),
-        ("Screenshot and recording options", "⇧⌘5", true),
+        ("Screenshot and recording options", "⇧⌘5", false),
     ]
 
     var body: some View {

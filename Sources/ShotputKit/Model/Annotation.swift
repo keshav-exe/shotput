@@ -5,16 +5,16 @@ public enum Tool: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .arrow: "Arrow"
-        case .line: "Line"
-        case .rectangle: "Rectangle"
-        case .ellipse: "Ellipse"
-        case .text: "Text"
-        case .counter: "Step number"
-        case .pen: "Pen"
-        case .highlight: "Highlighter"
-        case .redact: "Redact"
-        case .crop: "Crop"
+        case .arrow: L("Arrow")
+        case .line: L("Line")
+        case .rectangle: L("Rectangle")
+        case .ellipse: L("Ellipse")
+        case .text: L("Text")
+        case .counter: L("Step number")
+        case .pen: L("Pen")
+        case .highlight: L("Highlighter")
+        case .redact: L("Redact")
+        case .crop: L("Crop")
         }
     }
 
@@ -45,7 +45,7 @@ public enum Weight: Int, CaseIterable {
     var stroke: CGFloat { [2.5, 4, 6.5, 10][rawValue] }
     var fontSize: CGFloat { [14, 19, 28, 40][rawValue] }
     var counterRadius: CGFloat { [11, 14, 19, 26][rawValue] }
-    var name: String { ["Thin", "Regular", "Bold", "Extra bold"][rawValue] }
+    var name: String { [L("Thin"), L("Regular"), L("Bold"), L("Extra bold")][rawValue] }
 }
 
 /// One mark on the screenshot. Coordinates are image points with a top-left origin.

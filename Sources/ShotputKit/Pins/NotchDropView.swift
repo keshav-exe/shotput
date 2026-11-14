@@ -178,7 +178,7 @@ private struct MenuBarCard: View {
                     .contentTransition(.numericText())
             }
             .transition(.opacity.animation(.easeOut(duration: 0.12)))
-            .accessibilityLabel("Drag to the menu bar icon to pin")
+            .accessibilityLabel(L("Drag to the menu bar icon to pin"))
         case .near, .targeted:
             DropWell(model: model)
                 .padding(8)
@@ -213,7 +213,7 @@ private struct Ears: View {
                 .padding(.leading, 8)
                 .frame(width: NotchDropModel.earWidth, alignment: .leading)
         }
-        .accessibilityLabel("Drag to the notch to pin")
+        .accessibilityLabel(L("Drag to the notch to pin"))
     }
 }
 
@@ -234,7 +234,7 @@ private struct DropWell: View {
                 .frame(width: 52, height: 44)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(isTargeted ? "Let go to pin" : "Drop to pin")
+                Text(isTargeted ? L("Let go to pin") : L("Drop to pin"))
                     .font(.system(size: 13, weight: .semibold))
                     .contentTransition(.opacity)
                 Text(subtitle)
@@ -255,7 +255,7 @@ private struct DropWell: View {
             .padding(.horizontal, 7)
             .frame(height: 20)
             .background(Color.primary.opacity(0.07), in: .capsule)
-            .help(model.total >= PinStore.limit ? "The oldest pin makes room" : "Pins kept in the menu bar")
+            .help(model.total >= PinStore.limit ? L("The oldest pin makes room") : L("Pins kept in the menu bar"))
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -271,9 +271,9 @@ private struct DropWell: View {
 
     private var subtitle: String {
         let payload = model.payload
-        if payload.capture != nil { return "This screenshot" }
-        if payload.count == 1 { return payload.name ?? "1 item" }
-        return "\(payload.count) items"
+        if payload.capture != nil { return L("This screenshot") }
+        if payload.count == 1 { return payload.name ?? L("1 item") }
+        return String(format: L("%d items"), payload.count)
     }
 }
 
@@ -366,17 +366,17 @@ private struct Moment: View {
 
     private var title: String {
         switch model.phase {
-        case .pinned(let count): count == 1 ? "Pinned" : "Pinned \(count) items"
-        case .alreadyPinned: "Already pinned"
-        default: "Couldn’t pin that"
+        case .pinned(let count): count == 1 ? L("Pinned") : String(format: L("Pinned %d items"), count)
+        case .alreadyPinned: L("Already pinned")
+        default: L("Couldn’t pin that")
         }
     }
 
     private var detail: String {
         switch model.phase {
-        case .pinned: "In the menu bar, \(model.total) of \(PinStore.limit)"
-        case .alreadyPinned: "It’s in the menu bar"
-        default: "Only files and pictures can be pinned"
+        case .pinned: String(format: L("In the menu bar, %d of %d"), model.total, PinStore.limit)
+        case .alreadyPinned: L("It’s in the menu bar")
+        default: L("Only files and pictures can be pinned")
         }
     }
 }

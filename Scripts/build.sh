@@ -33,6 +33,12 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Translations. Every Resources/<language>.lproj goes into the bundle untouched, so adding a
+# language is adding a folder and nothing else.
+for lproj in Resources/*.lproj; do
+    [ -d "$lproj" ] || continue
+    cp -R "$lproj" "$APP/Contents/Resources/"
+done
 
 # Sparkle, for updates. SwiftPM leaves the framework next to the binary.
 mkdir -p "$APP/Contents/Frameworks"

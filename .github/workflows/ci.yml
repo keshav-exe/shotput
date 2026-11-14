@@ -15,4 +15,5 @@ jobs:
       - run: swift run shotput-dev editor "$RUNNER_TEMP/editor.png"
       - run: swift run shotput-dev overlay "$RUNNER_TEMP/overlay.png"
       - run: swift run shotput-dev settings "$RUNNER_TEMP/settings.png"
+      - run: ./Scripts/check-localization.py --strict
       - run: SHOTPUT_SIGN_IDENTITY=- ./Scripts/build.sh

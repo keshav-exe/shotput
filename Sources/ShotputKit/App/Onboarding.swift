@@ -269,7 +269,7 @@ struct OnboardingView: View {
         HStack(spacing: 16) {
             if state.step != .welcome {
                 Button { state.back() } label: {
-                    Label { Text("Back") } icon: { Icon.back.view(size: 12, weight: .semibold) }
+                    Label { Text(L("Back")) } icon: { Icon.back.view(size: 12, weight: .semibold) }
                         .padding(.vertical, 8)
                         .padding(.trailing, 8)
                         .contentShape(Rectangle())
@@ -282,7 +282,7 @@ struct OnboardingView: View {
             Spacer()
 
             if state.step == .ready {
-                Button("Done") { state.onFinish?(false) }
+                Button(L("Done")) { state.onFinish?(false) }
                     .controlSize(.large)
             }
             Button { state.step == .ready ? state.onFinish?(true) : state.advance() } label: {
@@ -300,9 +300,9 @@ struct OnboardingView: View {
 
     private var nextTitle: String {
         switch state.step {
-        case .welcome: "Get Started"
-        case .ready: "Try a Capture"
-        default: "Next"
+        case .welcome: L("Get Started")
+        case .ready: L("Try a Capture")
+        default: L("Next")
         }
     }
 }
@@ -374,14 +374,14 @@ private struct WelcomeStep: View {
                 .frame(width: 60, height: 60)
                 .padding(.bottom, 18)
             StepHeader(
-                title: "Welcome to Shotput",
-                message: "Screenshots made for pasting. Press a key, drag an area, and it’s on your clipboard before you let go."
+                title: L("Welcome to Shotput"),
+                message: L("Screenshots made for pasting. Press a key, drag an area, and it’s on your clipboard before you let go.")
             )
             VStack(alignment: .leading, spacing: 14) {
-                FeatureRow(.capture, "Capture", "an area, a window, or the whole screen.")
-                FeatureRow(.annotate, "Annotate", "with arrows, boxes, steps and redaction.")
-                FeatureRow(.pin, "Pin", "the ones you need again to the menu bar.")
-                FeatureRow(.lock, "Keep", "every capture on your Mac. None of them leave it.")
+                FeatureRow(.capture, L("Capture"), L("an area, a window, or the whole screen."))
+                FeatureRow(.annotate, L("Annotate"), L("with arrows, boxes, steps and redaction."))
+                FeatureRow(.pin, L("Pin"), L("the ones you need again to the menu bar."))
+                FeatureRow(.lock, L("Keep"), L("every capture on your Mac. None of them leave it."))
             }
         }
     }
@@ -419,16 +419,16 @@ private struct PermissionStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
-                title: "Allow Screen Recording",
-                message: "macOS only lets Shotput see your screen once you allow it, and Shotput only looks while you take a screenshot."
+                title: L("Allow Screen Recording"),
+                message: L("macOS only lets Shotput see your screen once you allow it, and Shotput only looks while you take a screenshot.")
             )
 
-            SettingCard(icon: .screen, title: "Screen Recording", detail: "Needed to take screenshots.") {
+            SettingCard(icon: .screen, title: L("Screen Recording"), detail: L("Needed to take screenshots.")) {
                 if granted {
-                    StatusPill(text: "Allowed", good: true)
+                    StatusPill(text: L("Allowed"), good: true)
                         .arrives()
                 } else {
-                    Button(asked ? "Open Again" : "Allow…") {
+                    Button(asked ? L("Open Again") : L("Allow…")) {
                         UserDefaults.standard.set(true, forKey: "askedForScreenRecording")
                         // Asking puts Shotput in the list. Recent macOS often asks without showing
                         // anything, so the settings page always opens too.
@@ -442,9 +442,9 @@ private struct PermissionStep: View {
 
             if !granted && asked {
                 VStack(alignment: .leading, spacing: 10) {
-                    NumberedRow(1, "Turn on Shotput under Screen & System Audio Recording.")
-                    NumberedRow(2, "macOS asks to quit and reopen Shotput. Let it, and this guide picks up here.")
-                    Button("Reopen Shotput") { Relaunch.now() }
+                    NumberedRow(1, L("Turn on Shotput under Screen & System Audio Recording."))
+                    NumberedRow(2, L("macOS asks to quit and reopen Shotput. Let it, and this guide picks up here."))
+                    Button(L("Reopen Shotput")) { Relaunch.now() }
                         .padding(.leading, 34)
                 }
                 .font(.system(size: 13))
@@ -461,20 +461,20 @@ private struct DefaultToolStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
-                title: "Make Shotput your screenshot tool?",
-                message: "Then ⇧⌘3 and ⇧⌘4 open Shotput instead of the tool you use now. ⇧⌘5 stays with macOS for recording. You can change this later in Settings."
+                title: L("Make Shotput your screenshot tool?"),
+                message: L("Then ⇧⌘3 and ⇧⌘4 open Shotput instead of the tool you use now. ⇧⌘5 stays with macOS for recording. You can change this later in Settings.")
             )
             VStack(spacing: 10) {
                 ChoiceCard(
                     selected: state.makesDefault,
-                    title: "Yes, use Shotput",
-                    detail: "⇧⌘4 for an area, ⇧⌘3 for the screen.",
-                    tag: "Recommended"
+                    title: L("Yes, use Shotput"),
+                    detail: L("⇧⌘4 for an area, ⇧⌘3 for the screen."),
+                    tag: L("Recommended")
                 ) { state.makesDefault = true }
                 ChoiceCard(
                     selected: !state.makesDefault,
-                    title: "No, keep my current tool",
-                    detail: "Shotput stays on ⌃⌥⌘A and its own keys, and leaves yours alone."
+                    title: L("No, keep my current tool"),
+                    detail: L("Shotput stays on ⌃⌥⌘A and its own keys, and leaves yours alone.")
                 ) { state.makesDefault = false }
             }
         }
@@ -550,31 +550,31 @@ private struct HandoffStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
-                title: "Hand over the keys",
-                message: "macOS answers ⇧⌘3 and ⇧⌘4 before any app hears them. Turn its shortcuts off and they’re Shotput’s."
+                title: L("Hand over the keys"),
+                message: L("macOS answers ⇧⌘3 and ⇧⌘4 before any app hears them. Turn its shortcuts off and they’re Shotput’s.")
             )
 
-            SettingCard(icon: .keyboard, title: "macOS screenshot shortcuts", detail: status.macOSOwnsKeys
-                ? "Keyboard Shortcuts → Screenshots. Untick ⇧⌘3 and ⇧⌘4. Leave the rest on."
-                : "Turned off. The keys reach Shotput now.") {
+            SettingCard(icon: .keyboard, title: L("macOS screenshot shortcuts"), detail: status.macOSOwnsKeys
+                ? L("Keyboard Shortcuts → Screenshots. Untick ⇧⌘3 and ⇧⌘4. Leave the rest on.")
+                : L("Turned off. The keys reach Shotput now.")) {
                 if status.macOSOwnsKeys {
-                    Button("Open…") { SystemScreenshots.openKeyboardShortcuts() }
+                    Button(L("Open…")) { SystemScreenshots.openKeyboardShortcuts() }
                         .buttonStyle(.borderedProminent)
                 } else {
-                    StatusPill(text: "Off", good: true)
+                    StatusPill(text: L("Off"), good: true)
                         .arrives()
                 }
             }
 
             ForEach(status.otherTools, id: \.self) { name in
-                SettingCard(icon: .warning, title: "\(name) is open", detail: "It may hold the same keys. Quit it, or clear them in its settings.") {
-                    Button("Quit") { SystemScreenshots.otherTools.first { $0.localizedName == name }?.terminate() }
+                SettingCard(icon: .warning, title: String(format: L("%@ is open"), name), detail: L("It may hold the same keys. Quit it, or clear them in its settings.")) {
+                    Button(L("Quit")) { SystemScreenshots.otherTools.first { $0.localizedName == name }?.terminate() }
                 }
                 .padding(.top, 10)
             }
 
             if !status.taken.isEmpty, !status.macOSOwnsKeys, status.otherTools.isEmpty {
-                Text("Another app still holds \(status.taken.compactMap { Settings.shared.shortcuts[$0]?.display }.joined(separator: ", ")).")
+                Text(String(format: L("Another app still holds %@."), status.taken.compactMap { Settings.shared.shortcuts[$0]?.display }.joined(separator: ", ")))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.top, 14)
@@ -590,8 +590,8 @@ private struct ShortcutsStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
-                title: "Your shortcuts",
-                message: "They work from any app. Pressing one again while you select backs out."
+                title: L("Your shortcuts"),
+                message: L("They work from any app. Pressing one again while you select backs out.")
             )
             VStack(spacing: 0) {
                 ForEach(shown) { action in
@@ -621,20 +621,20 @@ private struct MouseStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
-                title: "Capture from a mouse button",
-                message: "Logi Options+ can press Shotput’s keys for you. The gesture button fits five of them."
+                title: L("Capture from a mouse button"),
+                message: L("Logi Options+ can press Shotput’s keys for you. The gesture button fits five of them.")
             )
             VStack(alignment: .leading, spacing: 12) {
-                NumberedRow(1, "Open Logi Options+ and pick your mouse.")
-                NumberedRow(2, "Click the gesture or thumb button on the picture.")
-                NumberedRow(3, "Choose Keyboard shortcut, then press the Shotput keys.")
+                NumberedRow(1, L("Open Logi Options+ and pick your mouse."))
+                NumberedRow(2, L("Click the gesture or thumb button on the picture."))
+                NumberedRow(3, L("Choose Keyboard shortcut, then press the Shotput keys."))
             }
             .font(.system(size: 13))
             Group {
                 if let logiApp {
-                    Button("Open Logi Options+") { NSWorkspace.shared.open(logiApp) }
+                    Button(L("Open Logi Options+")) { NSWorkspace.shared.open(logiApp) }
                 } else {
-                    Button("Get Logi Options+") { NSWorkspace.shared.open(Self.download) }
+                    Button(L("Get Logi Options+")) { NSWorkspace.shared.open(Self.download) }
                 }
             }
             .padding(.top, 20)
@@ -649,24 +649,28 @@ private struct PinsStep: View {
     @ObservedObject private var settings = Settings.shared
 
     private var others: String { ListFormatter.localizedString(byJoining: state.notchApps) }
-    private var place: String { NotchGeometry.hasHardwareNotch ? "notch" : "top of the screen" }
+    private var hasNotch: Bool { NotchGeometry.hasHardwareNotch }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
-                title: "Where should pins go?",
-                message: "Drag a preview or any file to Shotput to pin it. \(others) already \(state.notchApps.count == 1 ? "uses" : "use") the \(place), so pick where Shotput takes the drag. You can change this later in Settings."
+                title: L("Where should pins go?"),
+                message: String(format: hasNotch
+                    ? L("Drag a preview or any file to Shotput to pin it. %@ already lives in the notch, so pick where Shotput takes the drag. You can change this later in Settings.")
+                    : L("Drag a preview or any file to Shotput to pin it. %@ already lives at the top of the screen, so pick where Shotput takes the drag. You can change this later in Settings."), others)
             )
             VStack(spacing: 10) {
                 ChoiceCard(
                     selected: settings.pinTarget == .notch,
-                    title: "The \(place)",
-                    detail: "Shotput’s island opens there while you drag, in place of \(others)’s. Turn off \(others)’s file shelf so only one opens."
+                    title: Settings.PinTarget.notch.title,
+                    detail: String(format: L("Shotput’s island opens there while you drag, in place of %1$@’s. Turn off %2$@’s file shelf so only one opens."), others, others)
                 ) { settings.pinTarget = .notch }
                 ChoiceCard(
                     selected: settings.pinTarget == .menuBar,
-                    title: "The menu bar icon",
-                    detail: "The \(place) stays with \(others). A card drops out under Shotput’s icon to take the drag."
+                    title: Settings.PinTarget.menuBar.title,
+                    detail: String(format: hasNotch
+                        ? L("The notch stays with %@. A card drops out under Shotput’s icon to take the drag.")
+                        : L("The top of the screen stays with %@. A card drops out under Shotput’s icon to take the drag."), others)
                 ) { settings.pinTarget = .menuBar }
             }
         }
@@ -680,14 +684,14 @@ private struct ReadyStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(
-                title: "Almost ready",
-                message: "Choose how Shotput runs. It lives in the menu bar: click the icon for pins, right-click for everything else."
+                title: L("Almost ready"),
+                message: L("Choose how Shotput runs. It lives in the menu bar: click the icon for pins, right-click for everything else.")
             )
             VStack(spacing: 10) {
-                SettingCard(icon: .power, title: "Open at login", detail: "Shotput is there whenever your Mac starts.") {
+                SettingCard(icon: .power, title: L("Open at login"), detail: L("Shotput is there whenever your Mac starts.")) {
                     Toggle("", isOn: $opensAtLogin).labelsHidden().toggleStyle(.switch)
                 }
-                SettingCard(icon: .update, title: "Install updates automatically", detail: "Downloads in the background, installs when Shotput quits.") {
+                SettingCard(icon: .update, title: L("Install updates automatically"), detail: L("Downloads in the background, installs when Shotput quits.")) {
                     Toggle("", isOn: Binding(get: { updates.isAutomatic }, set: { updates.isAutomatic = $0 }))
                         .labelsHidden().toggleStyle(.switch)
                 }
@@ -811,7 +815,7 @@ struct KeyCaps: View {
 
     var body: some View {
         if keys.isEmpty {
-            Text("Not set").font(.callout).foregroundStyle(.tertiary)
+            Text(L("Not set")).font(.callout).foregroundStyle(.tertiary)
         } else {
             let m = metrics
             HStack(spacing: m.gap) {

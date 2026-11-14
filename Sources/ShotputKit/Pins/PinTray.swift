@@ -78,7 +78,7 @@ final class PinTray: NSObject, NSPopoverDelegate {
         self.content = content
 
         if pins.isEmpty {
-            let title = label("Pinned", size: 13, weight: .semibold, color: .labelColor)
+            let title = label(L("Pinned"), size: 13, weight: .semibold, color: .labelColor)
             title.frame.origin = CGPoint(x: Self.inset, y: Self.size.height - Self.inset - 18)
             content.addSubview(title)
             content.addSubview(emptyState(in: CGRect(x: Self.inset, y: Self.inset, width: Self.size.width - Self.inset * 2, height: Self.cell.height)))
@@ -115,7 +115,7 @@ final class PinTray: NSObject, NSPopoverDelegate {
 
     // MARK: Header
 
-    /// "Pinned, 3 of 15" with Select and Clear, or, while picking, how many are picked and what
+    /// L("Pinned, 3 of 15") with Select and Clear, or, while picking, how many are picked and what
     /// to do with them.
     private func installHeader(in content: NSView) {
         header?.removeFromSuperview()
@@ -124,12 +124,12 @@ final class PinTray: NSObject, NSPopoverDelegate {
 
         let title: NSTextField
         if isPicking {
-            title = label(picked.isEmpty ? "Pick pins" : picked.count == 1 ? "1 picked" : "\(picked.count) picked",
+            title = label(picked.isEmpty ? L("Pick pins") : picked.count == 1 ? L("1 picked") : "\(picked.count) picked",
                           size: 13, weight: .semibold, color: .labelColor)
             title.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
             title.sizeToFit()
         } else {
-            title = label("Pinned", size: 13, weight: .semibold, color: .labelColor)
+            title = label(L("Pinned"), size: 13, weight: .semibold, color: .labelColor)
         }
         title.frame.origin = CGPoint(x: 0, y: 2)
         bar.addSubview(title)
@@ -143,17 +143,17 @@ final class PinTray: NSObject, NSPopoverDelegate {
         }
 
         let actions: [(String, Selector, String, Bool)] = isPicking
-            ? [("Copy", #selector(copyPicked), "Copy the picked pins", !picked.isEmpty),
-               ("Unpin", #selector(unpinPicked), "Unpin the picked pins", !picked.isEmpty),
-               ("Done", #selector(stopPicking), "Stop picking", true)]
-            : [("Select", #selector(startPicking), "Pick several pins, or ⌘-click them", true),
-               ("Clear", #selector(clearAll), "Remove every pin", true)]
+            ? [(L("Copy"), #selector(copyPicked), L("Copy the picked pins"), !picked.isEmpty),
+               (L("Unpin"), #selector(unpinPicked), L("Unpin the picked pins"), !picked.isEmpty),
+               (L("Done"), #selector(stopPicking), L("Stop picking"), true)]
+            : [(L("Select"), #selector(startPicking), L("Pick several pins, or ⌘-click them"), true),
+               (L("Clear"), #selector(clearAll), L("Remove every pin"), true)]
         var x = bar.bounds.width
         for (title, action, help, enabled) in actions.reversed() {
             let button = NSButton(title: title, target: self, action: action)
             button.isBordered = false
-            button.font = .systemFont(ofSize: 12, weight: title == "Done" || title == "Copy" ? .semibold : .medium)
-            button.contentTintColor = title == "Done" || (title == "Copy" && enabled) ? .controlAccentColor : .secondaryLabelColor
+            button.font = .systemFont(ofSize: 12, weight: title == L("Done") || title == L("Copy") ? .semibold : .medium)
+            button.contentTintColor = title == L("Done") || (title == L("Copy") && enabled) ? .controlAccentColor : .secondaryLabelColor
             button.isEnabled = enabled
             button.toolTip = help
             button.sizeToFit()
@@ -180,7 +180,7 @@ final class PinTray: NSObject, NSPopoverDelegate {
                 PinStore.shared.open(pin)
             } else {
                 PinStore.shared.copy(pin)
-                HUD.show("Copied pinned \(pin.noun)")
+                HUD.show(pin.isCapture ? L("Copied pinned screenshot") : L("Copied pinned file"))
             }
             return
         }
@@ -230,8 +230,7 @@ final class PinTray: NSObject, NSPopoverDelegate {
         guard !pins.isEmpty else { return }
         PinStore.shared.copy(pins)
         close()
-        let noun = Set(pins.map(\.noun)).count == 1 ? pins[0].noun : "pin"
-        HUD.show(pins.count == 1 ? "Copied pinned \(noun)" : "Copied \(pins.count) \(noun)s")
+        HUD.show(PinTray.copiedMessage(pins))
     }
 
     @objc private func unpinPicked() {
@@ -239,6 +238,15 @@ final class PinTray: NSObject, NSPopoverDelegate {
         isPicking = false
         picked = []
         PinStore.shared.remove(pins)
+    }
+
+    /// Whole sentences for each mix, so every one can be translated.
+    private static func copiedMessage(_ pins: [PinStore.Pin]) -> String {
+        let captures = pins.allSatisfy(\.isCapture)
+        let files = !pins.contains(where: \.isCapture)
+        if pins.count == 1 { return captures ? L("Copied pinned screenshot") : L("Copied pinned file") }
+        let format = captures ? L("Copied %d screenshots") : files ? L("Copied %d files") : L("Copied %d pins")
+        return String(format: format, pins.count)
     }
 
     private func emptyState(in frame: CGRect) -> NSView {
@@ -249,14 +257,16 @@ final class PinTray: NSObject, NSPopoverDelegate {
         box.layer?.borderWidth = 1
         box.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
 
-        let headline = label("Nothing pinned yet", size: 13, weight: .medium, color: .labelColor)
-        let place = NotchGeometry.hasHardwareNotch ? "notch" : "top of the screen"
-        let detail = label("Drag a preview or any file to the \(place).", size: 12, weight: .regular, color: .secondaryLabelColor)
+        let headline = label(L("Nothing pinned yet"), size: 13, weight: .medium, color: .labelColor)
+        let detail = label(
+            NotchGeometry.hasHardwareNotch ? L("Drag a preview or any file to the notch.") : L("Drag a preview or any file to the top of the screen."),
+            size: 12, weight: .regular, color: .secondaryLabelColor
+        )
         let text = NSStackView(views: [headline, detail])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 3
-        let capture = NSButton(title: "Capture Area", target: self, action: #selector(captureArea))
+        let capture = NSButton(title: L("Capture Area"), target: self, action: #selector(captureArea))
         capture.bezelStyle = .push
         capture.keyEquivalent = "\r"
         for view in [text, capture] {

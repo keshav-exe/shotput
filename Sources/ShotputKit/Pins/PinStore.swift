@@ -235,8 +235,3 @@ final class PinStore {
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 }
-
-extension PinStore.Pin {
-    /// How the tray and the HUD name it.
-    var noun: String { isCapture ? "screenshot" : "file" }
-}

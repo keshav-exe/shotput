@@ -75,7 +75,12 @@ final class FinderBridge {
             } else {
                 cutChangeCount = NSPasteboard.general.changeCount
                 cutCount = files.count
-                HUD.show(files.count == 1 ? "Cut \(files[0].lastPathComponent). ⌘V moves it." : "Cut \(files.count) items. ⌘V moves them.", icon: .scissors)
+                HUD.show(
+                    files.count == 1
+                        ? String(format: L("Cut %@. ⌘V moves it."), files[0].lastPathComponent)
+                        : String(format: L("Cut %d items. ⌘V moves them."), files.count),
+                    icon: .scissors
+                )
             }
             updateKeys()
         }
@@ -88,7 +93,7 @@ final class FinderBridge {
         keys.unregisterAll()
         if moving {
             press(kVK_ANSI_V, [.maskCommand, .maskAlternate])
-            HUD.show(cutCount == 1 ? "Moved 1 item" : "Moved \(cutCount) items", icon: .move)
+            HUD.show(cutCount == 1 ? L("Moved 1 item") : String(format: L("Moved %d items"), cutCount), icon: .move)
         } else {
             press(kVK_ANSI_V, .maskCommand)
         }
@@ -113,13 +118,13 @@ final class FinderBridge {
             // The restored clipboard isn't a cut any more.
             cutChangeCount = nil
             guard !files.isEmpty else {
-                HUD.show("Select files to pin first", icon: .pin)
+                HUD.show(L("Select files to pin first"), icon: .pin)
                 return
             }
             let icons = files.prefix(3).map { NSWorkspace.shared.icon(forFile: $0.path) }
             let count = await PinStore.shared.pin(files: files)
             guard count > 0 else {
-                HUD.show("Couldn’t pin that", icon: .warning)
+                HUD.show(L("Couldn’t pin that"), icon: .warning)
                 return
             }
             PinFlight.fly(icons, from: origin) {
@@ -134,7 +139,7 @@ final class FinderBridge {
     private func ensureKeyAccess() -> Bool {
         if CGPreflightPostEventAccess() { return true }
         CGRequestPostEventAccess()
-        HUD.show("Allow Shotput in Accessibility, then try again", icon: .lock)
+        HUD.show(L("Allow Shotput in Accessibility, then try again"), icon: .lock)
         return false
     }
 

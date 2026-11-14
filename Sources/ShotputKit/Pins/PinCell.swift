@@ -24,7 +24,7 @@ final class PinCell: NSView, NSDraggingSource {
 
     init(pin: PinStore.Pin, frame: CGRect) {
         self.pin = pin
-        remove = NSButton.glassCircle(.close, label: "Unpin", target: nil, action: #selector(unpin))
+        remove = NSButton.glassCircle(.close, label: L("Unpin"), target: nil, action: #selector(unpin))
         remove.controlSize = .small
         super.init(frame: frame)
         wantsLayer = true
@@ -48,7 +48,7 @@ final class PinCell: NSView, NSDraggingSource {
         addSubview(remove)
 
         // A filled tick in the corner marks a picked pin, as Photos and Finder do.
-        tick.image = Icon.checkmark.image(size: 10, weight: .bold, label: "Selected")
+        tick.image = Icon.checkmark.image(size: 10, weight: .bold, label: L("Selected"))
         tick.imageScaling = .scaleNone
         tick.contentTintColor = .white
         tick.wantsLayer = true
@@ -71,11 +71,12 @@ final class PinCell: NSView, NSDraggingSource {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         let when = formatter.localizedString(for: pin.date, relativeTo: Date())
-        let open = pin.isImage ? "⌥-click to annotate" : "⌥-click to open"
         toolTip = [pin.name ?? pin.appName, when].compactMap { $0 }.joined(separator: ", ")
-            + "\nClick to copy, \(open), ⌘-click to pick several, or drag"
+            + (pin.isImage
+                ? L("\nClick to copy, ⌥-click to annotate, ⌘-click to pick several, or drag")
+                : L("\nClick to copy, ⌥-click to open, ⌘-click to pick several, or drag"))
         setAccessibilityRole(.button)
-        setAccessibilityLabel(pin.name.map { "Pinned file \($0), \(when)" } ?? "Pinned screenshot, \(when)")
+        setAccessibilityLabel(pin.name.map { String(format: L("Pinned file %@, %@"), $0, when) } ?? String(format: L("Pinned screenshot, %@"), when))
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         updateChrome()
     }

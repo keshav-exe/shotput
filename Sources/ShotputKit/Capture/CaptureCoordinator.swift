@@ -9,7 +9,7 @@ final class CaptureCoordinator {
     static let shared = CaptureCoordinator()
 
     private(set) var lastCapture: Capture?
-    /// The last area selected, in global Cocoa coordinates, for "Repeat last area".
+    /// The last area selected, in global Cocoa coordinates, for L("Repeat last area").
     private var lastArea: CGRect?
     private var overlay: SelectionOverlay?
     private var isStarting = false
@@ -117,11 +117,11 @@ final class CaptureCoordinator {
     private func copyText(in image: CGImage) {
         TextRecognizer.recognize(image) { text, lines in
             guard let text else {
-                HUD.show("No text found", icon: .textFound)
+                HUD.show(L("No text found"), icon: .textFound)
                 return
             }
             Output.copyToClipboard(text: text)
-            HUD.show(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
+            HUD.show(String(format: lines == 1 ? L("Copied %d line of text") : L("Copied %d lines of text"), lines))
         }
     }
 
@@ -292,10 +292,10 @@ enum ScreenPermission {
     @MainActor
     static func explain() {
         let alert = NSAlert()
-        alert.messageText = "Shotput needs Screen Recording"
-        alert.informativeText = "macOS only lets Shotput see your screen while you take a screenshot, and only once you allow it. Turn Shotput on under Screen & System Audio Recording, then reopen it."
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Not now")
+        alert.messageText = L("Shotput needs Screen Recording")
+        alert.informativeText = L("macOS only lets Shotput see your screen while you take a screenshot, and only once you allow it. Turn Shotput on under Screen & System Audio Recording, then reopen it.")
+        alert.addButton(withTitle: L("Open System Settings"))
+        alert.addButton(withTitle: L("Not now"))
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn {
             openSettings()

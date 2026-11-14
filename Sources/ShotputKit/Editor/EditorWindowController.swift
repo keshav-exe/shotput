@@ -201,26 +201,26 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
                 item.toolTip = "\(tool.title)  \(String(tool.key).uppercased())"
             }
             group.selectedIndex = model.tool.rawValue
-            group.label = "Tools"
+            group.label = L("Tools")
             toolGroup = group
             return group
         case .background:
-            let item = button(identifier, "Background", .background, #selector(showBackground(_:)),
-                              tip: "Background")
+            let item = button(identifier, L("Background"), .background, #selector(showBackground(_:)),
+                              tip: L("Background"))
             return item
         case .recognizeText:
-            return button(identifier, "Copy text", .readText, #selector(copyRecognizedText(_:)),
-                          tip: "Copy text: reads the text in this screenshot and copies it")
+            return button(identifier, L("Copy text"), .readText, #selector(copyRecognizedText(_:)),
+                          tip: L("Copy text: reads the text in this screenshot and copies it"))
         case .save:
-            return button(identifier, "Save", .save, #selector(saveDocument(_:)), tip: "Save  ⌘S")
+            return button(identifier, L("Save"), .save, #selector(saveDocument(_:)), tip: L("Save  ⌘S"))
         case .copy:
-            return button(identifier, "Copy", .copy, #selector(copy(_:)),
-                          tip: Settings.shared.editorClosesOnCopy ? "Copy and close  ⌘C" : "Copy image  ⌘C")
+            return button(identifier, L("Copy"), .copy, #selector(copy(_:)),
+                          tip: Settings.shared.editorClosesOnCopy ? L("Copy and close  ⌘C") : L("Copy image  ⌘C"))
         case .done:
             let item = NSToolbarItem(itemIdentifier: identifier)
-            item.title = "Done"
-            item.label = "Done"
-            item.toolTip = "Copy and close  Return"
+            item.title = L("Done")
+            item.label = L("Done")
+            item.toolTip = L("Copy and close  Return")
             item.style = .prominent
             item.target = self
             item.action = #selector(done(_:))
@@ -284,7 +284,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             close()
         } else {
             confirm(.copy)
-            model.showToast("Copied")
+            model.showToast(L("Copied"))
         }
     }
 
@@ -351,9 +351,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             if let text {
                 Output.copyToClipboard(text: text)
                 self.confirm(.recognizeText)
-                self.model.showToast(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
+                self.model.showToast(String(format: lines == 1 ? L("Copied %d line of text") : L("Copied %d lines of text"), lines))
             } else {
-                self.model.showToast("No text found")
+                self.model.showToast(L("No text found"))
             }
         }
     }

@@ -39,11 +39,11 @@ final class RecorderButton: NSButton {
 
     private func refreshTitle() {
         if isRecording {
-            title = "Press shortcut"
+            title = L("Press shortcut")
         } else {
-            title = shortcut.isSet ? shortcut.display : "Record"
+            title = shortcut.isSet ? shortcut.display : L("Record")
         }
-        setAccessibilityLabel(shortcut.isSet ? "Shortcut \(shortcut.display)" : "No shortcut")
+        setAccessibilityLabel(shortcut.isSet ? String(format: L("Shortcut %@"), shortcut.display) : L("No shortcut"))
     }
 
     @objc private func toggleRecording() {

@@ -223,7 +223,7 @@ final class OverlayView: NSView {
 
         if showHint {
             let text = CATextLayer()
-            let string = "Drag to capture an area. Space picks a window. Esc cancels."
+            let string = L("Drag to capture an area. Space picks a window. Esc cancels.")
             let font = NSFont.systemFont(ofSize: 13, weight: .medium)
             let width = ceil((string as NSString).size(withAttributes: [.font: font]).width)
             text.string = string
@@ -306,7 +306,7 @@ final class OverlayView: NSView {
             pointerTag.isHidden = true
             return
         }
-        let string = hovered == nil ? "Move to a window" : "Click to capture"
+        let string = hovered == nil ? L("Move to a window") : L("Click to capture")
         if pointerTagText.string as? String != string {
             let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
             let width = ceil((string as NSString).size(withAttributes: [.font: font]).width) + 20

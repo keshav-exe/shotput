@@ -5,7 +5,8 @@ import SwiftUI
 /// Settings, one tab per area, so no single page grows taller than the screen.
 final class SettingsWindowController: NSWindowController {
     enum Pane: Int, CaseIterable {
-        case general, capture, editor, output, shortcuts, about
+        /// Numbered as they were added, so a remembered tab stays the same tab.
+        case general = 0, capture = 1, editor = 2, output = 3, pins = 6, shortcuts = 4, about = 5
 
         var title: String {
             switch self {
@@ -13,6 +14,7 @@ final class SettingsWindowController: NSWindowController {
             case .capture: "Capture"
             case .editor: "Editor"
             case .output: "Output"
+            case .pins: "Pins"
             case .shortcuts: "Shortcuts"
             case .about: "About"
             }
@@ -24,6 +26,7 @@ final class SettingsWindowController: NSWindowController {
             case .capture: .capture
             case .editor: .annotate
             case .output: .folder
+            case .pins: .pin
             case .shortcuts: .command
             case .about: .info
             }
@@ -36,6 +39,7 @@ final class SettingsWindowController: NSWindowController {
             case .capture: AnyView(CapturePane())
             case .editor: AnyView(EditorPane())
             case .output: AnyView(OutputPane())
+            case .pins: AnyView(PinsPane())
             case .shortcuts: AnyView(ShortcutsPane())
             case .about: AnyView(AboutPane())
             }
@@ -70,7 +74,7 @@ final class SettingsWindowController: NSWindowController {
 
     static let width: CGFloat = 520
 
-    func select(_ pane: Pane) { tabs.selectedTabViewItemIndex = pane.rawValue }
+    func select(_ pane: Pane) { tabs.selectedTabViewItemIndex = Pane.allCases.firstIndex(of: pane) ?? 0 }
 }
 
 // MARK: General
@@ -221,7 +225,7 @@ struct CapturePane: View {
             Section("In captures") {
                 Toggle("Include the pointer in screen captures", isOn: $settings.showsPointer)
                 Toggle("Include Shotput’s own windows", isOn: $settings.capturesOwnWindows)
-                    .help("Settings, the editor, and the guide show up in captures. Previews, the pin shelf, and the selection are always left out.")
+                    .help("Settings, the editor, and the guide show up in captures. Previews, the notch, and the selection are always left out.")
             }
         }
         .formStyle(.grouped)
@@ -440,7 +444,8 @@ struct ShortcutsPane: View {
     var body: some View {
         Form {
             Section {
-                ForEach(HotAction.allCases) { action in
+                // The pin shortcut lives with the rest of pinning, on the Pins tab.
+                ForEach(HotAction.allCases.filter { $0 != .pinFiles }) { action in
                     LabeledContent {
                         ShortcutRecorder(shortcut: Binding(
                             get: { settings.shortcuts[action] ?? .none },
@@ -492,6 +497,77 @@ struct ShortcutsPane: View {
         }
         .formStyle(.grouped)
         .scrollDisabled(true)
+    }
+}
+
+// MARK: Pins
+
+struct PinsPane: View {
+    @ObservedObject private var settings = Settings.shared
+    @State private var canPressKeys = CGPreflightPostEventAccess()
+
+    private var notch: String { NotchGeometry.hasHardwareNotch ? "notch" : "top of the screen" }
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Drag to pin at", selection: $settings.pinTarget) {
+                    ForEach(Settings.PinTarget.allCases) { Text($0.title).tag($0) }
+                }
+                Toggle(isOn: $settings.pinsDraggedFiles) {
+                    Text("Take files dragged in any app")
+                    Text("Off, only previews open the drop target.")
+                }
+            } header: {
+                Text("Dragging")
+            } footer: {
+                Text(settings.pinTarget == .notch
+                     ? "Start a drag and the \(notch) grows a pin; bring it close and it opens to take the drop."
+                     : "Start a drag and a card drops out under Shotput’s menu bar icon to take it.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                LabeledContent {
+                    ShortcutRecorder(shortcut: Binding(
+                        get: { settings.shortcuts[.pinFiles] ?? .none },
+                        set: { settings.shortcuts[.pinFiles] = $0 }
+                    ))
+                    .frame(width: 150, height: 24)
+                } label: {
+                    Text(HotAction.pinFiles.title)
+                    Text("Select files in Finder, press it, and they fly to your pins.")
+                }
+                Toggle(isOn: $settings.cutsInFinder) {
+                    Text("⌘X cuts files in Finder")
+                    Text("Then ⌘V moves them, with Finder’s own Move Item Here.")
+                }
+                if !canPressKeys && (settings.cutsInFinder || settings.shortcuts[.pinFiles]?.isSet == true) {
+                    LabeledContent {
+                        Button("Open Accessibility") { CGRequestPostEventAccess(); SystemSettings.openAccessibility() }
+                    } label: {
+                        Text("Shotput can’t press keys yet")
+                        Text("Both press Copy in Finder for you. Turn Shotput on under Accessibility.")
+                    }
+                }
+            } header: {
+                Text("Finder")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            canPressKeys = CGPreflightPostEventAccess()
+        }
+    }
+}
+
+/// Deep links into System Settings.
+enum SystemSettings {
+    static func openAccessibility() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 }
 

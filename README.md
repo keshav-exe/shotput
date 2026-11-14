@@ -90,7 +90,7 @@ The image is on the clipboard straight away, so you can paste without waiting. A
 then appears in the screen corner nearest your pointer that does not cover what you captured.
 
 - Click it to annotate.
-- Drag it into any app as a file, or up to the menu bar to pin it.
+- Drag it into any app as a file, or up to the notch to pin it.
 - Ignore it and it leaves after a few seconds. It never takes focus.
 
 Settings can open the editor every time instead, or skip the preview and copy quietly.
@@ -118,14 +118,32 @@ separately.
 
 ## Pins
 
-Drag a preview towards the menu bar and a shelf drops out under the Shotput icon. Let go over
-it to pin, or use the pin button on the preview.
+Pin a preview, or any file. Start dragging and the notch grows a pin; bring the drag up to it
+and it opens into a glass well. Let go to pin. It works for files from Finder, attachments from
+Mail, photos from Photos, and pictures from a web page, as well as Shotput's own previews. Macs
+without a notch get the same island at the top centre of the menu bar. Settings > Pins turns
+off the notch for files dragged in other apps; previews can always be dragged there, and the pin
+button on a preview still works.
+
+If another notch app is installed (NotchNook, Boring Notch, Alcove and the like), the guide asks
+where pins should go: Shotput's island at the notch, or a glass card that drops out under the
+Shotput menu bar icon and leaves the notch alone. Clove shares the notch with Shotput: it folds back
+to the bare notch while a drag is on, so there's nothing to choose.
+
+Select files in Finder and press ⌃⌥⌘P to pin them without dragging: they fly up into the notch
+(or the menu bar icon). Settings > Pins can also make ⌘X cut files in Finder, so ⌘V moves them.
+Shotput presses Finder's own Copy and Move Item Here to do it, which needs Accessibility; the
+clipboard is put back after the pin shortcut copies.
+
+Pinned files are copied into Shotput's container (an instant clone on APFS), so they stay put
+if the original moves. Dropping the same file again moves it to the front.
 
 Click the menu bar icon to open the tray. It holds the last 15 pins in a strip that scrolls
-sideways. Click a pin to copy it, Option-click to annotate it, or drag it into any app.
+sideways. Click a pin to copy it, Option-click to annotate a picture or open any other file, or
+drag it into any app.
 
 To work with several, ⌘-click them (⇧-click picks a run), or press Select. Then Copy puts them
-all on the clipboard as separate images, dragging one drags them all, and Unpin removes them.
+all on the clipboard as separate items, dragging one drags them all, and Unpin removes them.
 Right-click the icon for captures, Settings, Check for Updates, and Quit.
 
 ## Annotating
@@ -163,6 +181,7 @@ The toolbar can also copy the text in the screenshot, read on your Mac.
 | Capture | The magnifier, edge snapping, selection hints, what follows a capture, where the preview sits and how long it stays, window shadows, a wallpaper or colour behind window captures, the pointer in screen captures, and whether Shotput's own windows can be captured. |
 | Editor | What Esc does, whether ⌘C also closes, turning sketches into shapes, and how text recognition joins lines. |
 | Output | Standard resolution, the save folder, saving every capture, PNG, JPEG or HEIC with a quality slider, and a file name template such as `%n %Y-%m-%d %H.%M.%S`. |
+| Pins | Where drags go (the notch or the menu bar icon), files from other apps, the pin shortcut, and ⌘X to cut in Finder. |
 | Shortcuts | Every action above, taking over ⇧⌘3 and ⇧⌘4, the optional capture bar on ⇧⌘5, and the mouse button guide. |
 | About | The version, automatic updates, and Check for Updates. |
 

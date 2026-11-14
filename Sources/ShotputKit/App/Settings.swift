@@ -37,6 +37,21 @@ final class Settings: ObservableObject {
         static let shortcutsBeforeScreenshotKeys = "shortcutsBeforeScreenshotKeys"
         static let shortcutsBeforeCaptureBar = "shortcutsBeforeCaptureBar"
         static let captureBarMode = "captureBarMode"
+        static let pinsDraggedFiles = "pinsDraggedFiles"
+        static let pinTarget = "pinTarget"
+        static let cutsInFinder = "cutsInFinder"
+    }
+
+    /// Where a drag goes to be pinned. The notch, unless another app already lives there.
+    enum PinTarget: String, CaseIterable, Identifiable {
+        case notch, menuBar
+        var id: String { rawValue }
+        @MainActor var title: String {
+            switch self {
+            case .notch: NotchGeometry.hasHardwareNotch ? "The notch" : "The top of the screen"
+            case .menuBar: "The menu bar icon"
+            }
+        }
     }
 
     enum AfterCapture: String, CaseIterable, Identifiable {
@@ -166,6 +181,11 @@ final class Settings: ObservableObject {
     @Published var editorClosesOnCopy: Bool { didSet { store(editorClosesOnCopy, Key.editorClosesOnCopy) } }
     @Published var escapeInEditor: EscapeInEditor { didSet { store(escapeInEditor.rawValue, Key.escapeInEditor) } }
     @Published var recognizesShapes: Bool { didSet { store(recognizesShapes, Key.recognizesShapes) } }
+    /// The notch opens as a drop target whenever files are dragged in any app, not only previews.
+    @Published var pinsDraggedFiles: Bool { didSet { store(pinsDraggedFiles, Key.pinsDraggedFiles) } }
+    @Published var pinTarget: PinTarget { didSet { store(pinTarget.rawValue, Key.pinTarget) } }
+    /// ⌘X cuts files in Finder and ⌘V moves them.
+    @Published var cutsInFinder: Bool { didSet { store(cutsInFinder, Key.cutsInFinder) } }
 
     /// The backdrop window captures get, or nil to keep them on transparency.
     var windowBackdrop: Backdrop.Style? {
@@ -190,6 +210,7 @@ final class Settings: ObservableObject {
         Key.ocrKeepsLineBreaks: true,
         Key.ocrLanguageCorrection: true,
         Key.recognizesShapes: true,
+        Key.pinsDraggedFiles: true,
     ]
 
     private init() {
@@ -222,6 +243,9 @@ final class Settings: ObservableObject {
         editorClosesOnCopy = defaults.bool(forKey: Key.editorClosesOnCopy)
         escapeInEditor = EscapeInEditor(rawValue: defaults.string(forKey: Key.escapeInEditor) ?? "") ?? .discard
         recognizesShapes = defaults.bool(forKey: Key.recognizesShapes)
+        pinsDraggedFiles = defaults.bool(forKey: Key.pinsDraggedFiles)
+        pinTarget = PinTarget(rawValue: defaults.string(forKey: Key.pinTarget) ?? "") ?? .notch
+        cutsInFinder = defaults.bool(forKey: Key.cutsInFinder)
 
         var loaded: [HotAction: Shortcut] = [:]
         if let data = defaults.data(forKey: Key.shortcuts),
@@ -268,6 +292,9 @@ final class Settings: ObservableObject {
         editorClosesOnCopy = false
         escapeInEditor = .discard
         recognizesShapes = true
+        pinsDraggedFiles = true
+        pinTarget = .notch
+        cutsInFinder = false
     }
 
     // MARK: Save folder

@@ -9,8 +9,9 @@ import SwiftUI
 final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     enum Step: Int, CaseIterable {
         /// `handoff` only shows when Shotput was made the screenshot tool and something else still
-        /// holds the keys.
-        case welcome, permission, defaultTool, handoff, shortcuts, mouse, ready
+        /// holds the keys. `pins` only shows when another developer's notch app is installed.
+        /// The numbers are what a resumed guide stored, so `pins` keeps the one it was added with.
+        case welcome = 0, permission = 1, defaultTool = 2, handoff = 3, shortcuts = 4, mouse = 5, pins = 7, ready = 6
     }
 
     static let size = CGSize(width: 920, height: 600)
@@ -166,9 +167,12 @@ final class OnboardingState: ObservableObject {
 
     static func screenRecordingAllowed() -> Bool { assumeScreenRecording || CGPreflightScreenCaptureAccess() }
 
+    /// Another developer's notch app, which the pins step asks about. Read once, when the guide opens.
+    let notchApps = NotchApps.installedOthers()
+
     /// The dots in the footer. The hand-off belongs to the screenshot tool step.
-    static let dots: [Step] = Step.allCases.filter { $0 != .handoff }
-    var dotIndex: Int { Self.dots.firstIndex(of: step == .handoff ? .defaultTool : step) ?? 0 }
+    var dots: [Step] { Step.allCases.filter { $0 != .handoff && ($0 != .pins || !notchApps.isEmpty) } }
+    var dotIndex: Int { dots.firstIndex(of: step == .handoff ? .defaultTool : step) ?? 0 }
 
     func advance() {
         switch step {
@@ -176,6 +180,8 @@ final class OnboardingState: ObservableObject {
             applyDefaultChoice()
             step = makesDefault && HandoffStatus.current().needsAttention ? .handoff : .shortcuts
         case .handoff: step = .shortcuts
+        case .mouse: step = notchApps.isEmpty ? .ready : .pins
+        case .pins: step = .ready
         case .ready: onFinish?(false)
         default: if let next = Step(rawValue: step.rawValue + 1) { step = next }
         }
@@ -185,6 +191,8 @@ final class OnboardingState: ObservableObject {
         switch step {
         case .shortcuts: step = makesDefault && HandoffStatus.current().needsAttention ? .handoff : .defaultTool
         case .welcome: break
+        case .ready: step = notchApps.isEmpty ? .mouse : .pins
+        case .pins: step = .mouse
         default: if let previous = Step(rawValue: step.rawValue - 1) { step = previous }
         }
     }
@@ -222,7 +230,7 @@ struct OnboardingView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                StepDots(count: OnboardingState.dots.count, current: state.dotIndex)
+                StepDots(count: state.dots.count, current: state.dotIndex)
                     .padding(.bottom, 28)
                 Group {
                     switch state.step {
@@ -232,6 +240,7 @@ struct OnboardingView: View {
                     case .handoff: HandoffStep(state: state)
                     case .shortcuts: ShortcutsStep()
                     case .mouse: MouseStep()
+                    case .pins: PinsStep(state: state)
                     case .ready: ReadyStep()
                     }
                 }
@@ -629,6 +638,37 @@ private struct MouseStep: View {
                 }
             }
             .padding(.top, 20)
+        }
+    }
+}
+
+/// Another notch app is installed, so pins ask where to go: Shotput's island at the notch, over
+/// that app while a drag lasts, or a card under the menu bar icon that leaves the notch alone.
+private struct PinsStep: View {
+    @ObservedObject var state: OnboardingState
+    @ObservedObject private var settings = Settings.shared
+
+    private var others: String { ListFormatter.localizedString(byJoining: state.notchApps) }
+    private var place: String { NotchGeometry.hasHardwareNotch ? "notch" : "top of the screen" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            StepHeader(
+                title: "Where should pins go?",
+                message: "Drag a preview or any file to Shotput to pin it. \(others) already \(state.notchApps.count == 1 ? "uses" : "use") the \(place), so pick where Shotput takes the drag. You can change this later in Settings."
+            )
+            VStack(spacing: 10) {
+                ChoiceCard(
+                    selected: settings.pinTarget == .notch,
+                    title: "The \(place)",
+                    detail: "Shotput’s island opens there while you drag, in place of \(others)’s. Turn off \(others)’s file shelf so only one opens."
+                ) { settings.pinTarget = .notch }
+                ChoiceCard(
+                    selected: settings.pinTarget == .menuBar,
+                    title: "The menu bar icon",
+                    detail: "The \(place) stays with \(others). A card drops out under Shotput’s icon to take the drag."
+                ) { settings.pinTarget = .menuBar }
+            }
         }
     }
 }

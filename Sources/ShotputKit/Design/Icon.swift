@@ -46,6 +46,8 @@ enum Icon: String {
     case warning = "exclamationmark.triangle.fill"
     case toolbar = "rectangle.bottomthird.inset.filled"
     case areaDashed = "rectangle.dashed"
+    case scissors = "scissors"
+    case move = "arrow.right.doc.on.clipboard"
 
     /// The symbol at the size its surroundings choose, as toolbars, tabs, and menus expect.
     func plain(label: String? = nil) -> NSImage {

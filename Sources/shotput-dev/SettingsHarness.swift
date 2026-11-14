@@ -57,6 +57,7 @@ func settingsHarness(to path: String) {
         _ = render(CaptureBarView(defaultMode: .area) { _ in }.background(Color.gray), name: "capture-bar", width: nil, appearance: appearance)
     }
 
+    NotchApps.assumeInstalled = ["NotchNook"]
     for step in OnboardingWindowController.Step.allCases {
         let state = OnboardingState(step: step)
         _ = render(OnboardingView(state: state).background(Color(nsColor: Palette.background)),

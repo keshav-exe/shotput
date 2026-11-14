@@ -82,7 +82,7 @@ struct Shortcut: Codable, Equatable {
 
 /// Things a shortcut, a mouse button, or a URL can trigger.
 enum HotAction: String, CaseIterable, Identifiable {
-    case area, areaAnnotate, window, screen, annotateLast, repeatArea, text, annotateClipboard, toolbar
+    case area, areaAnnotate, window, screen, annotateLast, repeatArea, text, annotateClipboard, toolbar, pinFiles
 
     var id: String { rawValue }
 
@@ -97,6 +97,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .text: "Copy text from area"
         case .annotateClipboard: "Annotate clipboard image"
         case .toolbar: "Capture bar"
+        case .pinFiles: "Pin selected files"
         }
     }
 
@@ -111,6 +112,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .text: .readText
         case .annotateClipboard: .clipboard
         case .toolbar: .toolbar
+        case .pinFiles: .pin
         }
     }
 
@@ -126,6 +128,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .text: "Drag over any text and it is copied as text."
         case .annotateClipboard: "Opens the image on the clipboard in the editor."
         case .toolbar: "Shotput’s captures and macOS’s own recorder, in one bar."
+        case .pinFiles: "Pins what’s selected in Finder, and sends it flying to your pins."
         }
     }
 
@@ -138,6 +141,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .screen: Shortcut(keyCode: kVK_ANSI_S, hyper)
         case .annotateLast: Shortcut(keyCode: kVK_ANSI_E, hyper)
         case .text: Shortcut(keyCode: kVK_ANSI_T, hyper)
+        case .pinFiles: Shortcut(keyCode: kVK_ANSI_P, hyper)
         case .repeatArea, .annotateClipboard, .toolbar: .none
         }
     }
@@ -155,6 +159,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .text: coordinator.capture(.area, readText: true)
         case .annotateClipboard: coordinator.annotateClipboard()
         case .toolbar: CaptureBar.shared.toggle()
+        case .pinFiles: FinderBridge.shared.pinSelection()
         }
     }
 }
@@ -162,7 +167,14 @@ enum HotAction: String, CaseIterable, Identifiable {
 /// System-wide hotkeys through Carbon. Event driven, needs no Accessibility permission, and costs
 /// nothing while idle. Synthetic keystrokes from Logi Options+ arrive the same way as real ones.
 final class HotKeyCenter {
-    static let shared = HotKeyCenter()
+    static let shared = HotKeyCenter(signature: 0x5348_5054)
+
+    /// Tells this center's keys from another's: each center numbers its keys from 1.
+    private let signature: OSType
+
+    init(signature: OSType) {
+        self.signature = signature
+    }
 
     private var handlers: [UInt32: () -> Void] = [:]
     /// Indexes of bindings another app already holds, from the last `register`.
@@ -178,7 +190,7 @@ final class HotKeyCenter {
             var reference: EventHotKeyRef?
             let status = RegisterEventHotKey(
                 UInt32(binding.shortcut.keyCode), binding.shortcut.carbonModifiers,
-                EventHotKeyID(signature: 0x5348_5054, id: id), GetEventDispatcherTarget(), 0, &reference
+                EventHotKeyID(signature: signature, id: id), GetEventDispatcherTarget(), 0, &reference
             )
             if status == noErr, let reference {
                 references.append(reference)
@@ -208,7 +220,9 @@ final class HotKeyCenter {
                 MemoryLayout<EventHotKeyID>.size, nil, &id
             )
             guard status == noErr else { return status }
-            Unmanaged<HotKeyCenter>.fromOpaque(context).takeUnretainedValue().handlers[id.id]?()
+            let center = Unmanaged<HotKeyCenter>.fromOpaque(context).takeUnretainedValue()
+            guard id.signature == center.signature, let handler = center.handlers[id.id] else { return OSStatus(eventNotHandledErr) }
+            handler()
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), nil)
     }

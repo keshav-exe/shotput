@@ -1,6 +1,6 @@
 import AppKit
 
-/// One pinned capture. What a click does is the tray's call, since it depends on whether pins
+/// One pin: a capture, or a dropped file shown by its thumbnail and name. What a click does is the tray's call, since it depends on whether pins
 /// are being picked. Dragging drops the file, or every picked file, into any app.
 @MainActor
 final class PinCell: NSView, NSDraggingSource {
@@ -33,8 +33,12 @@ final class PinCell: NSView, NSDraggingSource {
         layer.cornerCurve = .continuous
         layer.masksToBounds = true
         layer.backgroundColor = Palette.surfaceMuted.cgColor
-        layer.contents = PinStore.shared.thumbnail(for: pin)
-        layer.contentsGravity = .resizeAspectFill
+        if pin.isImage, let thumbnail = PinStore.shared.thumbnail(for: pin) {
+            layer.contents = thumbnail
+            layer.contentsGravity = .resizeAspectFill
+        } else {
+            installFile(in: layer)
+        }
         ring.frame = bounds
         ring.cornerRadius = 10
         ring.cornerCurve = .continuous
@@ -67,16 +71,44 @@ final class PinCell: NSView, NSDraggingSource {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         let when = formatter.localizedString(for: pin.date, relativeTo: Date())
-        toolTip = [pin.appName, when].compactMap { $0 }.joined(separator: ", ")
-            + "\nClick to copy, ⌥-click to annotate, ⌘-click to pick several, or drag"
+        let open = pin.isImage ? "⌥-click to annotate" : "⌥-click to open"
+        toolTip = [pin.name ?? pin.appName, when].compactMap { $0 }.joined(separator: ", ")
+            + "\nClick to copy, \(open), ⌘-click to pick several, or drag"
         setAccessibilityRole(.button)
-        setAccessibilityLabel("Pinned screenshot, \(when)")
+        setAccessibilityLabel(pin.name.map { "Pinned file \($0), \(when)" } ?? "Pinned screenshot, \(when)")
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         updateChrome()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// A file that isn't a picture: its Quick Look thumbnail, or its icon until that's made,
+    /// above its name.
+    private func installFile(in layer: CALayer) {
+        let art = CALayer()
+        art.frame = CGRect(x: 12, y: 24, width: bounds.width - 24, height: bounds.height - 32)
+        art.contentsGravity = .resizeAspect
+        art.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        if let thumbnail = PinStore.shared.thumbnail(for: pin) {
+            art.contents = thumbnail
+            art.shadowColor = NSColor.black.cgColor
+            art.shadowOpacity = 0.18
+            art.shadowRadius = 2
+            art.shadowOffset = CGSize(width: 0, height: -1)
+        } else {
+            art.contents = PinStore.shared.icon(for: pin)
+        }
+        layer.addSublayer(art)
+
+        let name = NSTextField(labelWithString: pin.name ?? "")
+        name.font = .systemFont(ofSize: 11, weight: .medium)
+        name.textColor = .secondaryLabelColor
+        name.alignment = .center
+        name.lineBreakMode = .byTruncatingMiddle
+        name.frame = CGRect(x: 8, y: 5, width: bounds.width - 16, height: 15)
+        addSubview(name, positioned: .below, relativeTo: nil)
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -109,7 +141,7 @@ final class PinCell: NSView, NSDraggingSource {
         let items = pins.enumerated().map { index, pin -> NSDraggingItem in
             let item = NSDraggingItem(pasteboardWriter: PinStore.shared.url(for: pin) as NSURL)
             let offset = CGFloat(min(index, 4)) * 6
-            let image = PinStore.shared.thumbnail(for: pin).map { NSImage(cgImage: $0, size: .zero) }
+            let image = PinStore.shared.thumbnail(for: pin).map { NSImage(cgImage: $0, size: .zero) } ?? PinStore.shared.icon(for: pin)
             item.setDraggingFrame(bounds.offsetBy(dx: offset, dy: -offset), contents: image)
             return item
         }

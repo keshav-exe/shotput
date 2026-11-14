@@ -66,6 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
 
         HotKeyCenter.reload()
+        NotchDrop.shared.start()
+        FinderBridge.shared.start()
         Updates.shared.start()
         if Settings.shared.screenshotFolder != nil { MacScreenshotWatcher.shared.start() }
         // Also gives macOS its thumbnail back where an earlier Shotput left it off and shouldn't have.

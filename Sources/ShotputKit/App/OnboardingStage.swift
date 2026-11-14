@@ -1,12 +1,14 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The right half of the welcome guide: a dark stage with one small scene per step, showing the
 /// thing the step talks about rather than describing it again.
 struct StageView: View {
     @ObservedObject var state: OnboardingState
     @ObservedObject private var wallpaper = GuideWallpaper.shared
+    @ObservedObject private var settings = Settings.shared
 
     var body: some View {
         ZStack {
@@ -38,6 +40,7 @@ struct StageView: View {
     private var sceneID: String {
         switch state.step {
         case .defaultTool: "keys-\(state.makesDefault)"
+        case .pins: "pins-\(settings.pinTarget.rawValue)"
         default: "\(state.step)"
         }
     }
@@ -58,6 +61,7 @@ struct StageView: View {
         case .handoff: HandoffScene(macOSOwns: state.handoff.macOSOwnsKeys)
         case .shortcuts: ShortcutKeyboardScene()
         case .mouse: GestureMap().padding(14).stagePanel(radius: 24)
+        case .pins: PinsScene(target: settings.pinTarget)
         case .ready: ReadyScene()
         }
     }
@@ -334,6 +338,74 @@ private struct GestureMap: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(emphasised ? Palette.accent.color.opacity(0.6) : Color.white.opacity(0.06))
         )
+    }
+}
+
+// MARK: Pins
+
+/// The top of a screen with a file being let go over Shotput's drop target: the real island at
+/// the notch, or the real card under the menu bar icon, whichever is picked.
+private struct PinsScene: View {
+    let target: Settings.PinTarget
+    @State private var model = NotchDropModel()
+
+    private static let width = OnboardingWindowController.size.width / 2
+    private static let notch = CGSize(width: 150, height: 30)
+    /// Where Shotput's icon sits, from the middle of the scene.
+    private static let iconOffset: CGFloat = 70
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            menuBar
+            NotchDropView(model: model)
+                .offset(x: target == .menuBar ? 30 : 0)
+                .frame(width: Self.width, height: NotchGeometry.canvas.height, alignment: .top)
+        }
+        .frame(width: Self.width, height: 300, alignment: .top)
+        .clipped()
+        .frame(maxHeight: .infinity, alignment: .top)
+        .onAppear(perform: configure)
+        .onChange(of: target) { _, _ in configure() }
+    }
+
+    private var menuBar: some View {
+        ZStack {
+            HStack(spacing: 14) {
+                Image(systemName: "apple.logo").font(.system(size: 12, weight: .semibold))
+                Capsule().fill(.white.opacity(0.35)).frame(width: 34, height: 8)
+                Capsule().fill(.white.opacity(0.2)).frame(width: 22, height: 8)
+                Spacer()
+                Capsule().fill(.white.opacity(0.2)).frame(width: 18, height: 8)
+                Capsule().fill(.white.opacity(0.2)).frame(width: 40, height: 8)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            Icon.capture.view(size: 13, weight: .semibold)
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 20)
+                .background(.white.opacity(target == .menuBar ? 0.22 : 0), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .offset(x: Self.iconOffset)
+            // The other app's notch, left alone.
+            NotchShape(topRadius: 6, bottomRadius: 10)
+                .fill(.black)
+                .frame(width: Self.notch.width + 12, height: Self.notch.height)
+                .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .frame(height: Self.notch.height)
+        .background(.ultraThinMaterial)
+    }
+
+    private func configure() {
+        let menu = target == .menuBar
+        model.geometry = NotchGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: Self.width, height: 300),
+            size: menu ? CGSize(width: 26, height: Self.notch.height) : Self.notch,
+            midX: 0, isHardware: !menu, isMenuBar: menu
+        )
+        model.total = 4
+        let icons = ["pdf", "png"].map { NSWorkspace.shared.icon(for: UTType(filenameExtension: $0) ?? .data) }
+        model.payload = DragPayload(count: 2, icons: icons)
+        model.phase = .targeted
     }
 }
 

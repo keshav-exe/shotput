@@ -45,9 +45,8 @@ final class PreviewPanelController {
         }
         view.onDragStart = { [weak self] in
             self?.dismissal?.invalidate()
-            PinShelf.shared.show(for: capture)
+            NotchDrop.shared.beginDragging(capture)
         }
-        view.onDragEnd = { PinShelf.shared.hide() }
         view.onSave = { [weak self] in
             self?.dismiss()
             guard let file = capture.fileData() else { return }

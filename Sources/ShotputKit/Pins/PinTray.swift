@@ -1,6 +1,6 @@
 import AppKit
 
-/// What a left click on the menu bar icon opens: the pinned captures in a strip that scrolls
+/// What a left click on the menu bar icon opens: the pinned captures and files in a strip that scrolls
 /// sideways. A transient popover, so Esc and clicks elsewhere close it the way they close any
 /// popover; a pin that gets used closes it too. ⌘-click, ⇧-click, or Select picks several pins
 /// to copy, drag, or unpin together.
@@ -180,7 +180,7 @@ final class PinTray: NSObject, NSPopoverDelegate {
                 PinStore.shared.open(pin)
             } else {
                 PinStore.shared.copy(pin)
-                HUD.show("Copied pinned screenshot")
+                HUD.show("Copied pinned \(pin.noun)")
             }
             return
         }
@@ -230,7 +230,8 @@ final class PinTray: NSObject, NSPopoverDelegate {
         guard !pins.isEmpty else { return }
         PinStore.shared.copy(pins)
         close()
-        HUD.show(pins.count == 1 ? "Copied pinned screenshot" : "Copied \(pins.count) screenshots")
+        let noun = Set(pins.map(\.noun)).count == 1 ? pins[0].noun : "pin"
+        HUD.show(pins.count == 1 ? "Copied pinned \(noun)" : "Copied \(pins.count) \(noun)s")
     }
 
     @objc private func unpinPicked() {
@@ -249,7 +250,8 @@ final class PinTray: NSObject, NSPopoverDelegate {
         box.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
 
         let headline = label("Nothing pinned yet", size: 13, weight: .medium, color: .labelColor)
-        let detail = label("Drag a preview up to the menu bar, or use its pin.", size: 12, weight: .regular, color: .secondaryLabelColor)
+        let place = NotchGeometry.hasHardwareNotch ? "notch" : "top of the screen"
+        let detail = label("Drag a preview or any file to the \(place).", size: 12, weight: .regular, color: .secondaryLabelColor)
         let text = NSStackView(views: [headline, detail])
         text.orientation = .vertical
         text.alignment = .leading

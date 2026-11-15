@@ -90,6 +90,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     func applicationWillTerminate(_ notification: Notification) {
         MacScreenshotWatcher.shared.restoreThumbnailOnQuit()
+        // Copies made for dragging and pinning: screenshots shouldn't sit on disk after quitting.
+        Output.purgeTemporaryFiles()
     }
 
     /// The menu bar icon blinks like a shutter on each capture. It is the only feedback when

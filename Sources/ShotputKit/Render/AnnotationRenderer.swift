@@ -28,6 +28,11 @@ public final class AnnotationRenderer {
         // two spotlights light two areas instead of dimming each other.
         let spotlights = annotations.filter { if case .spotlight = $0.kind { true } else { false } }
         var dimmed = false
+        // Redactions that were deleted or undone take their covered pixels with them.
+        if redactionCache.count > 0 {
+            let live = Set(annotations.lazy.map(\.id))
+            redactionCache = redactionCache.filter { live.contains($0.key) }
+        }
         for annotation in annotations {
             if case .spotlight = annotation.kind {
                 if !dimmed { drawSpotlights(spotlights, bounds: bounds, ctx) }

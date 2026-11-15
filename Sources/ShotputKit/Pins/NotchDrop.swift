@@ -398,6 +398,18 @@ final class NotchDrop {
         }
     }
 
+    /// What `ignoresMouseEvents` was last set to, so the window server only hears about changes.
+    private var isIgnoringPointer = true
+    /// When the drag pasteboard was last asked whether a drag carries anything.
+    private var lastDragCheck: TimeInterval = 0
+    private var dragWatchStarted: TimeInterval = 0
+
+    private func setIgnoresPointer(_ ignores: Bool) {
+        guard ignores != isIgnoringPointer else { return }
+        isIgnoringPointer = ignores
+        window.ignoresMouseEvents = ignores
+    }
+
     private func handlePointer(_ event: NSEvent, isLocal: Bool) {
         if event.type == .leftMouseDown || event.type == .rightMouseDown, model.phase == .tray {
             if isLocal && event.window === window {
@@ -420,9 +432,13 @@ final class NotchDrop {
     private func updatePointer(_ location: CGPoint) {
         guard let geometry = model.geometry, window.isVisible else { return }
         guard model.isResting || model.phase == .tray else {
-            window.ignoresMouseEvents = true
+            setIgnoresPointer(true)
             return
         }
+        // Most moves are nowhere near the notch: with nothing pending, there's nothing to do.
+        let isFar = location.y < geometry.screenFrame.maxY - NotchGeometry.canvas.height
+            || abs(location.x - geometry.midX) > NotchGeometry.canvas.width / 2
+        if isFar, isIgnoringPointer, hoverTask == nil, model.phase != .tray { return }
         let island = geometry.hangingRect(model.size)
         let over: Bool
         if model.phase == .tray {
@@ -430,7 +446,7 @@ final class NotchDrop {
         } else {
             over = restingHotRects(geometry).contains { $0.contains(location) }
         }
-        window.ignoresMouseEvents = !over
+        setIgnoresPointer(!over)
 
         switch model.phase {
         case .badge where over && NSEvent.pressedMouseButtons == 0, .hidden where over && model.showsSideBubble && NSEvent.pressedMouseButtons == 0:
@@ -466,10 +482,22 @@ final class NotchDrop {
     private func handleGlobal(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
+            guard Settings.shared.pinsDraggedFiles else { return }
             changeCountAtMouseDown = NSPasteboard(name: .drag).changeCount
             isWatchingForDrag = true
+            dragWatchStarted = event.timestamp
+            lastDragCheck = 0
         case .leftMouseDragged:
-            guard isWatchingForDrag, Settings.shared.pinsDraggedFiles else { return }
+            guard isWatchingForDrag else { return }
+            // A drag that hasn't written the drag pasteboard within a second is moving a window
+            // or selecting text, not carrying anything. And asking the pasteboard is a round trip
+            // to another process, so not on every one of the 120 events a second.
+            if event.timestamp - dragWatchStarted > 1 {
+                isWatchingForDrag = false
+                return
+            }
+            guard event.timestamp - lastDragCheck >= 0.05 else { return }
+            lastDragCheck = event.timestamp
             let pasteboard = NSPasteboard(name: .drag)
             // The dragging app writes the pasteboard a moment into the drag, so keep looking.
             guard pasteboard.changeCount != changeCountAtMouseDown else { return }
@@ -515,7 +543,7 @@ final class NotchDrop {
             model.phase = restPhase
         }
         hoverTask?.cancel()
-        window.ignoresMouseEvents = true
+        setIgnoresPointer(true)
         model.showsSideBubble = false
 
         model.payload = payload

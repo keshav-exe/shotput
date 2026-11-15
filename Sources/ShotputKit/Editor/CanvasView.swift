@@ -11,7 +11,22 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case endpoint(id: UUID, movesStart: Bool, creating: Bool)
         case bend(id: UUID)
         case pen(id: UUID)
-        case crop(anchor: CGPoint)
+        case cropNew(anchor: CGPoint)
+        case cropMove(start: CGPoint, original: CGRect)
+        case cropResize(handle: CropHandle, original: CGRect)
+    }
+
+    /// One of the crop box's eight handles: -1, 0, or 1 along each axis.
+    private struct CropHandle {
+        let x: Int
+        let y: Int
+
+        static let all: [CropHandle] = [(-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0)]
+            .map { CropHandle(x: $0.0, y: $0.1) }
+
+        func point(in rect: CGRect) -> CGPoint {
+            CGPoint(x: rect.midX + CGFloat(x) * rect.width / 2, y: rect.midY + CGFloat(y) * rect.height / 2)
+        }
     }
 
     let model: EditorModel
@@ -23,10 +38,11 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private let baseView = NSView()
     private let marks = MarkView()
     private var drag = Drag.none
-    private var cropRect: CGRect?
     private var clickedAreaMark: UUID?
     private var textEditor: NSTextView?
-    private var editing: (id: UUID?, origin: CGPoint, weight: Weight, color: InkColor, filled: Bool)?
+    private var editing: (id: UUID?, origin: CGPoint, style: MarkStyle)?
+    private var edges: (base: ObjectIdentifier, xs: [CGFloat], ys: [CGFloat])?
+    private var lastTool: Tool?
     private var subscriptions = Set<AnyCancellable>()
 
     init(model: EditorModel) {
@@ -73,11 +89,15 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             baseView.layer?.contents = model.base
         }
         layer?.shadowPath = CGPath(rect: bounds, transform: nil)
+        if lastTool != model.tool {
+            lastTool = model.tool
+            window?.invalidateCursorRects(for: self)
+        }
         marks.needsDisplay = true
     }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .crosshair)
+        addCursorRect(bounds, cursor: model.tool == .select && model.crop == nil ? .arrow : .crosshair)
     }
 
     // MARK: Drawing
@@ -90,7 +110,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     private func drawSelection(_ ctx: CGContext) {
-        guard let selected = model.selected, selected.id != editing?.id else { return }
+        guard model.crop == nil, let selected = model.selected, selected.id != editing?.id else { return }
         let unit = 1 / zoom
         let accent = Palette.accent.cgColor
         ctx.saveGState()
@@ -138,15 +158,45 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     private func drawCrop(_ ctx: CGContext) {
-        guard let cropRect else { return }
+        guard let box = model.crop?.rect else { return }
+        let unit = 1 / zoom
         ctx.saveGState()
-        ctx.addRect(imageBounds)
-        ctx.addRect(cropRect)
-        ctx.setFillColor(NSColor.black.withAlphaComponent(0.45).cgColor)
+        ctx.addRect(imageBounds.insetBy(dx: -2000, dy: -2000))
+        ctx.addRect(box)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.5).cgColor)
         ctx.fillPath(using: .evenOdd)
+
+        // Rule of thirds.
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.45).cgColor)
+        ctx.setLineWidth(unit)
+        for i in 1 ... 2 {
+            let x = box.minX + box.width * CGFloat(i) / 3
+            let y = box.minY + box.height * CGFloat(i) / 3
+            ctx.strokeLineSegments(between: [CGPoint(x: x, y: box.minY), CGPoint(x: x, y: box.maxY),
+                                             CGPoint(x: box.minX, y: y), CGPoint(x: box.maxX, y: y)])
+        }
         ctx.setStrokeColor(.white)
-        ctx.setLineWidth(1 / zoom)
-        ctx.stroke(cropRect)
+        ctx.stroke(box, width: unit)
+
+        // Corner brackets and edge bars, drawn just inside the box so they stay on the image.
+        let arm = min(18 * unit, box.width / 3, box.height / 3)
+        let thick = 3 * unit
+        ctx.setShadow(offset: .zero, blur: 3, color: NSColor.black.withAlphaComponent(0.45).cgColor)
+        ctx.setFillColor(.white)
+        for handle in CropHandle.all {
+            let p = handle.point(in: box)
+            if handle.x != 0, handle.y != 0 {
+                let sx = CGFloat(-handle.x), sy = CGFloat(-handle.y)
+                ctx.fill(CGRect(x: min(p.x, p.x + sx * arm), y: min(p.y, p.y + sy * thick), width: arm, height: thick))
+                ctx.fill(CGRect(x: min(p.x, p.x + sx * thick), y: min(p.y, p.y + sy * arm), width: thick, height: arm))
+            } else if handle.x == 0 {
+                let sy = CGFloat(-handle.y)
+                ctx.fill(CGRect(x: p.x - arm / 2, y: min(p.y, p.y + sy * thick), width: arm, height: thick))
+            } else {
+                let sx = CGFloat(-handle.x)
+                ctx.fill(CGRect(x: min(p.x, p.x + sx * thick), y: p.y - arm / 2, width: thick, height: arm))
+            }
+        }
         ctx.restoreGState()
     }
 
@@ -159,6 +209,19 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
         window?.makeFirstResponder(self)
         let p = convert(event.locationInWindow, from: nil)
+
+        if let box = model.crop?.rect {
+            let reach = 10 / zoom
+            if let handle = CropHandle.all.first(where: { $0.point(in: box).distance(to: p) <= reach }) {
+                drag = .cropResize(handle: handle, original: box)
+            } else if box.contains(p) {
+                drag = .cropMove(start: p, original: box)
+            } else {
+                drag = .cropNew(anchor: snapped(p.clamped(to: imageBounds), event))
+            }
+            return
+        }
+
         model.beginGesture()
 
         if let selected = model.selected {
@@ -191,10 +254,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
 
         clickedAreaMark = nil
-        if model.tool != .crop, let hit = model.annotations.last(where: { $0.hitTest(p, tolerance: 6 / zoom) }) {
+        if let hit = model.annotations.last(where: { $0.hitTest(p, tolerance: 6 / zoom) }) {
             // Solid marks only grab by their edge, or once selected. Otherwise nothing could be
-            // drawn or typed on top of a redaction or highlight. A plain click inside still selects.
-            let grabs = !hit.coversArea || hit.id == model.selectedID || hit.hitsOutline(p, tolerance: 6 / zoom)
+            // drawn or typed on top of a redaction or highlight. A plain click inside still
+            // selects, and the select tool grabs anything.
+            let grabs = model.tool == .select || !hit.coversArea || hit.id == model.selectedID
+                || hit.hitsOutline(p, tolerance: 6 / zoom)
             if grabs {
                 model.selectedID = hit.id
                 if event.clickCount == 2, case let .text(origin, _) = hit.kind {
@@ -215,14 +280,15 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             model.update { $0.append(annotation) }
             return annotation.id
         }
+        let zero = CGRect(origin: start, size: .zero)
 
         switch model.tool {
-        case .crop:
-            cropRect = nil
-            drag = .crop(anchor: start)
+        case .select:
+            model.selectedID = clickedAreaMark
         case .text:
-            let pad = TextMetrics.padding(model.weight)
-            let lineHeight = TextMetrics.textSize("", model.weight).height
+            let style = model.style(for: .text)
+            let pad = TextMetrics.padding(style)
+            let lineHeight = TextMetrics.textSize("", style).height
             beginTextEditing(at: CGPoint(x: p.x - pad.width, y: p.y - pad.height - lineHeight / 2), existing: nil)
         case .counter:
             let id = create(.counter(center: p, number: model.nextCounter))
@@ -234,14 +300,16 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             drag = .endpoint(id: create(.arrow(from: p, to: p)), movesStart: false, creating: true)
         case .line:
             drag = .endpoint(id: create(.line(from: p, to: p)), movesStart: false, creating: true)
-        case .rectangle:
-            drag = .rect(id: create(.rectangle(CGRect(origin: p, size: .zero))), anchor: p, creating: true)
+        case .rectangle, .filledRectangle:
+            drag = .rect(id: create(.rectangle(zero)), anchor: start, creating: true)
         case .ellipse:
-            drag = .rect(id: create(.ellipse(CGRect(origin: p, size: .zero))), anchor: p, creating: true)
+            drag = .rect(id: create(.ellipse(zero)), anchor: start, creating: true)
         case .highlight:
-            drag = .rect(id: create(.highlight(CGRect(origin: p, size: .zero))), anchor: p, creating: true)
+            drag = .rect(id: create(.highlight(zero)), anchor: start, creating: true)
         case .redact:
-            drag = .rect(id: create(.redact(CGRect(origin: p, size: .zero))), anchor: p, creating: true)
+            drag = .rect(id: create(.redact(zero)), anchor: start, creating: true)
+        case .spotlight:
+            drag = .rect(id: create(.spotlight(zero)), anchor: start, creating: true)
         }
     }
 
@@ -267,7 +335,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 )
             }
             model.replace(id) { $0.withRect(CGRect(from: anchor, to: p)) }
-        case let .endpoint(id, movesStart, _):
+        case let .endpoint(id, movesStart, creating):
             model.replace(id) { annotation in
                 guard let ends = annotation.endpoints else { return annotation }
                 let fixed = movesStart ? ends.to : ends.from
@@ -279,7 +347,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                     let angle = (atan2(delta.y, delta.x) / step).rounded() * step
                     p = fixed + CGPoint(x: cos(angle), y: sin(angle)) * delta.length
                 }
-                return annotation.withEndpoints(from: movesStart ? p : fixed, to: movesStart ? fixed : p)
+                let moved = annotation.withEndpoints(from: movesStart ? p : fixed, to: movesStart ? fixed : p)
+                // A new curved arrow keeps its arc in proportion as it is drawn out.
+                return creating && annotation.style.curved ? moved.withAutomaticBend() : moved
             }
         case let .bend(id):
             model.replace(id) { $0.bent(through: raw) }
@@ -292,9 +362,26 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 copy.kind = .pen(points)
                 return copy
             }
-        case let .crop(anchor):
-            cropRect = CGRect(from: anchor, to: raw.clamped(to: imageBounds))
-            marks.needsDisplay = true
+        case let .cropNew(anchor):
+            let p = snapped(raw.clamped(to: imageBounds), event)
+            model.crop?.rect = fitted(CGRect(from: anchor, to: p), anchor: anchor, toward: p)
+        case let .cropMove(start, original):
+            var rect = original.offsetBy(dx: raw.x - start.x, dy: raw.y - start.y)
+            rect.origin.x = min(max(rect.minX, 0), imageBounds.width - rect.width)
+            rect.origin.y = min(max(rect.minY, 0), imageBounds.height - rect.height)
+            if snaps(event), let edges = edgeCandidates() {
+                let reach = 8 / zoom
+                let left = EdgeFinder.snap(rect.minX, to: edges.xs, reach: reach)
+                let right = EdgeFinder.snap(rect.maxX, to: edges.xs, reach: reach)
+                rect.origin.x += left != rect.minX ? left - rect.minX : right - rect.maxX
+                let top = EdgeFinder.snap(rect.minY, to: edges.ys, reach: reach)
+                let bottom = EdgeFinder.snap(rect.maxY, to: edges.ys, reach: reach)
+                rect.origin.y += top != rect.minY ? top - rect.minY : bottom - rect.maxY
+            }
+            model.crop?.rect = rect
+        case let .cropResize(handle, original):
+            let p = snapped(raw.clamped(to: imageBounds), event)
+            model.crop?.rect = resized(original, handle: handle, to: p)
         }
     }
 
@@ -318,12 +405,11 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 model.replace(id) { var copy = $0; copy.kind = shape.kind; return copy }
                 model.showToast("Made it a \(shape.name). ⌘Z keeps the sketch")
             }
-        case .crop:
-            if let rect = cropRect?.integral, rect.width >= 8, rect.height >= 8 {
-                model.crop(to: rect)
+        case .cropNew:
+            // A click outside the box, not a drag, leaves the old box alone rather than a sliver.
+            if let rect = model.crop?.rect, rect.width < 4 || rect.height < 4 {
+                model.crop?.rect = imageBounds
             }
-            cropRect = nil
-            marks.needsDisplay = true
         default:
             break
         }
@@ -339,6 +425,78 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
     }
 
+    // MARK: Crop geometry
+
+    /// Snapping is on when the setting says so, and ⌘ flips it for the length of a drag.
+    private func snaps(_ event: NSEvent) -> Bool {
+        model.snapsToEdges != event.modifierFlags.contains(.command)
+    }
+
+    private func edgeCandidates() -> (xs: [CGFloat], ys: [CGFloat])? {
+        let id = ObjectIdentifier(model.base)
+        if edges?.base != id {
+            let found = EdgeFinder.edges(in: model.base, scale: model.scale)
+            edges = (id, found.xs + [0, model.size.width], found.ys + [0, model.size.height])
+        }
+        return edges.map { ($0.xs, $0.ys) }
+    }
+
+    private func snapped(_ p: CGPoint, _ event: NSEvent) -> CGPoint {
+        guard snaps(event), let edges = edgeCandidates() else { return p }
+        let reach = 8 / zoom
+        return CGPoint(x: EdgeFinder.snap(p.x, to: edges.xs, reach: reach), y: EdgeFinder.snap(p.y, to: edges.ys, reach: reach))
+    }
+
+    private var cropRatio: CGFloat? { model.crop?.aspect.value(original: model.size) }
+
+    /// A box from `anchor` toward `p`, held to the crop's shape and kept inside the image.
+    private func fitted(_ rect: CGRect, anchor: CGPoint, toward p: CGPoint) -> CGRect {
+        guard let ratio = cropRatio else { return rect.intersection(imageBounds) }
+        let dx: CGFloat = p.x < anchor.x ? -1 : 1, dy: CGFloat = p.y < anchor.y ? -1 : 1
+        let roomX = dx > 0 ? imageBounds.maxX - anchor.x : anchor.x
+        let roomY = dy > 0 ? imageBounds.maxY - anchor.y : anchor.y
+        var width = max(abs(p.x - anchor.x), abs(p.y - anchor.y) * ratio)
+        width = min(width, roomX, roomY * ratio)
+        let height = width / ratio
+        return CGRect(from: anchor, to: CGPoint(x: anchor.x + dx * width, y: anchor.y + dy * height))
+    }
+
+    private func resized(_ original: CGRect, handle: CropHandle, to p: CGPoint) -> CGRect {
+        var minX = original.minX, maxX = original.maxX, minY = original.minY, maxY = original.maxY
+        if handle.x < 0 { minX = p.x } else if handle.x > 0 { maxX = p.x }
+        if handle.y < 0 { minY = p.y } else if handle.y > 0 { maxY = p.y }
+        let free = CGRect(x: min(minX, maxX), y: min(minY, maxY), width: max(abs(maxX - minX), 1), height: max(abs(maxY - minY), 1))
+        guard let ratio = cropRatio else { return free.intersection(imageBounds) }
+
+        if handle.x != 0, handle.y != 0 {
+            // A corner: the opposite corner stays put.
+            let anchor = CGPoint(x: handle.x < 0 ? original.maxX : original.minX, y: handle.y < 0 ? original.maxY : original.minY)
+            return fitted(free, anchor: anchor, toward: p)
+        }
+        // An edge: the other side grows about the box's centre line.
+        var rect = free
+        if handle.x != 0 {
+            rect.size.height = rect.width / ratio
+            rect.origin.y = original.midY - rect.height / 2
+        } else {
+            rect.size.width = rect.height * ratio
+            rect.origin.x = original.midX - rect.width / 2
+        }
+        if !imageBounds.contains(rect) {
+            let clipped = rect.intersection(imageBounds)
+            let scale = min(clipped.width / rect.width, clipped.height / rect.height)
+            let size = CGSize(width: rect.width * scale, height: rect.height * scale)
+            rect = CGRect(
+                x: handle.x < 0 ? rect.maxX - size.width : handle.x > 0 ? rect.minX : original.midX - size.width / 2,
+                y: handle.y < 0 ? rect.maxY - size.height : handle.y > 0 ? rect.minY : original.midY - size.height / 2,
+                width: size.width, height: size.height
+            )
+            rect.origin.x = min(max(rect.minX, 0), imageBounds.width - rect.width)
+            rect.origin.y = min(max(rect.minY, 0), imageBounds.height - rect.height)
+        }
+        return rect
+    }
+
     // MARK: Keyboard
 
     override func keyDown(with event: NSEvent) {
@@ -347,15 +505,22 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             super.keyDown(with: event)
             return
         }
+        if model.crop != nil {
+            switch event.keyCode {
+            case 53: model.cancelCrop()
+            case 36, 76: model.applyCrop()
+            default: super.keyDown(with: event)
+            }
+            return
+        }
         switch event.keyCode {
         case 51, 117:
             model.deleteSelected()
         case 53:
-            if cropRect == nil, model.selectedID == nil {
+            if model.selectedID == nil {
                 onEscape?()
                 return
             }
-            cropRect = nil
             model.selectedID = nil
             marks.needsDisplay = true
         case 36, 76:
@@ -373,10 +538,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             model.replace(id) { $0.translated(by: delta) }
         default:
             guard let character = event.charactersIgnoringModifiers?.lowercased().first else { return }
-            if let tool = Tool.allCases.first(where: { $0.key == character }) {
+            if character == "c" {
+                model.beginCrop()
+            } else if let tool = Tool.allCases.first(where: { $0.key == character }) {
                 model.setTool(tool)
-            } else if let digit = character.wholeNumberValue, let color = InkColor(rawValue: digit - 1) {
-                model.setColor(color)
+            } else if let digit = character.wholeNumberValue {
+                model.setColor(Ink.palette[(digit + 9) % 10])
             } else {
                 super.keyDown(with: event)
             }
@@ -409,28 +576,27 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     // MARK: Text editing
 
     private func beginTextEditing(at origin: CGPoint, existing: Annotation?) {
-        let weight = existing?.weight ?? model.weight
-        let color = existing?.color ?? model.color
-        let filled = existing?.filled ?? model.make(.text(origin: origin, string: "")).filled
-        editing = (existing?.id, origin, weight, color, filled)
+        let style = existing?.style ?? model.style(for: .text)
+        editing = (existing?.id, origin, style)
+        let pill = style.text == .pill
 
         let editor = NSTextView(frame: .zero)
         editor.delegate = self
         editor.isRichText = false
         editor.allowsUndo = true
-        editor.font = TextMetrics.font(weight)
-        editor.textColor = filled ? color.onInk : color.nsColor
-        editor.insertionPointColor = filled ? color.onInk : color.nsColor
+        editor.font = TextMetrics.font(style)
+        editor.textColor = pill ? style.color.onInk : style.color.nsColor
+        editor.insertionPointColor = pill ? style.color.onInk : style.color.nsColor
         editor.drawsBackground = false
-        editor.textContainerInset = TextMetrics.padding(weight)
+        editor.textContainerInset = TextMetrics.padding(style)
         editor.textContainer?.lineFragmentPadding = 0
         editor.textContainer?.widthTracksTextView = false
         editor.textContainer?.containerSize = CGSize(width: 10_000, height: 10_000)
         editor.isVerticallyResizable = false
         editor.isHorizontallyResizable = false
         editor.wantsLayer = true
-        editor.layer?.backgroundColor = filled ? color.cgColor : NSColor.clear.cgColor
-        editor.layer?.cornerRadius = min(weight.fontSize * 0.45, 100)
+        editor.layer?.backgroundColor = pill ? style.color.cgColor : NSColor.clear.cgColor
+        editor.layer?.cornerRadius = pill ? min(style.size * 0.45, 100) : 0
         editor.focusRingType = .none
         if case let .text(_, string)? = existing?.kind { editor.string = string }
 
@@ -444,7 +610,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private func sizeEditorToFit() {
         guard let textEditor, let editing else { return }
-        var frame = TextMetrics.frame(origin: editing.origin, string: textEditor.string, weight: editing.weight)
+        var frame = TextMetrics.frame(origin: editing.origin, string: textEditor.string, style: editing.style)
         frame.size.width += 3 // room for the caret
         textEditor.frame = frame
     }
@@ -487,10 +653,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 model.replace(id) { var copy = $0; copy.kind = .text(origin: editing.origin, string: string); return copy }
             }
         } else if !string.isEmpty {
-            let annotation = Annotation(
-                kind: .text(origin: editing.origin, string: string),
-                color: editing.color, weight: editing.weight, filled: editing.filled
-            )
+            let annotation = Annotation(kind: .text(origin: editing.origin, string: string), style: editing.style)
             model.perform { $0.append(annotation) }
             model.selectedID = annotation.id
         }

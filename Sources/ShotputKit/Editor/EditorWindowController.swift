@@ -3,20 +3,32 @@ import Combine
 import SwiftUI
 
 private extension NSToolbarItem.Identifier {
-    static let tools = NSToolbarItem.Identifier("tools")
+    static let crop = NSToolbarItem.Identifier("crop")
+    static let style = NSToolbarItem.Identifier("style")
+    static let pin = NSToolbarItem.Identifier("pin")
+    static let cropControls = NSToolbarItem.Identifier("cropControls")
+    static let cancelCrop = NSToolbarItem.Identifier("cancelCrop")
+    static let applyCrop = NSToolbarItem.Identifier("applyCrop")
     static let recognizeText = NSToolbarItem.Identifier("recognizeText")
     static let background = NSToolbarItem.Identifier("background")
     static let save = NSToolbarItem.Identifier("save")
     static let float = NSToolbarItem.Identifier("float")
     static let copy = NSToolbarItem.Identifier("copy")
     static let done = NSToolbarItem.Identifier("done")
+
+    /// Each tool is its own item, so Customize Toolbar can hide or reorder the ones you rarely use.
+    static func tool(_ tool: Tool) -> NSToolbarItem.Identifier { NSToolbarItem.Identifier("tool.\(tool.rawValue)") }
+
+    var tool: Tool? {
+        rawValue.hasPrefix("tool.") ? Tool(rawValue: String(rawValue.dropFirst(5))) : nil
+    }
 }
 
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     /// Space kept clear under the image for the floating style bar.
     private static let bottomReserve: CGFloat = 68
     private static let margin: CGFloat = 40
-    private static let minimumContent = CGSize(width: 760, height: 460)
+    private static let minimumContent = CGSize(width: 1040, height: 460)
 
     let capture: Capture
     var onClose: ((EditorWindowController) -> Void)?
@@ -24,7 +36,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     let model: EditorModel
     let canvas: CanvasView
     private let scrollView = NSScrollView()
-    private var toolGroup: NSToolbarItemGroup?
+    /// The markup toolbar, and the one that replaces it while cropping.
+    private var markupToolbar: NSToolbar!
+    private lazy var cropToolbar: NSToolbar = {
+        let toolbar = NSToolbar(identifier: "editor.crop")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        return toolbar
+    }()
     private var actionItems: [NSToolbarItem.Identifier: (item: NSToolbarItem, icon: Icon)] = [:]
     private lazy var backdropControls: BackdropControls = {
         let controls = BackdropControls(current: model.backdrop?.style)
@@ -56,9 +75,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         window.delegate = self
         window.contentMinSize = Self.minimumContent
 
-        let toolbar = NSToolbar(identifier: "editor")
+        let toolbar = NSToolbar(identifier: "editor.markup")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = true
+        toolbar.autosavesConfiguration = true
+        markupToolbar = toolbar
         window.toolbar = toolbar
         window.toolbarStyle = .unified
 
@@ -70,7 +92,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         }
 
         model.$tool
-            .sink { [weak self] tool in self?.toolGroup?.selectedIndex = tool.rawValue }
+            .sink { [weak self] tool in self?.highlightTool(tool) }
+            .store(in: &subscriptions)
+        model.$crop
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] cropping in self?.showCropToolbar(cropping) }
             .store(in: &subscriptions)
         NotificationCenter.default.addObserver(
             self, selector: #selector(userMagnified), name: NSScrollView.didEndLiveMagnifyNotification, object: scrollView
@@ -98,7 +125,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(scrollView)
 
-        let bar = NSHostingView(rootView: StyleBar(model: model))
+        let bar = NSHostingView(rootView: EditorBar(model: model, actions: EditorBar.Actions(
+            copyText: { [weak self] in self?.copyRecognizedText(nil) },
+            float: { [weak self] in self?.floatOnScreen(nil) },
+            pin: { [weak self] in self?.pinToMenuBar(nil) },
+            save: { [weak self] in self?.saveDocument(nil) }
+        )))
         bar.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(bar)
 
@@ -179,32 +211,61 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     // MARK: Toolbar
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.tools, .flexibleSpace, .background, .recognizeText, .float, .save, .copy, .done]
+        if toolbar === cropToolbar { return [.crop, .cropControls, .flexibleSpace, .cancelCrop, .applyCrop] }
+        // Copy text, Float, Pin, and Save sit in the bar under the image, as in most markup apps, so
+        // the tools and their options fit on one row. Customize Toolbar can bring them up here.
+        return [.crop, .background, .space] + Tool.allCases.map { .tool($0) }
+            + [.style, .flexibleSpace, .copy, .done]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
+        toolbarDefaultItemIdentifiers(toolbar) + [.recognizeText, .float, .pin, .save, .flexibleSpace, .space]
+    }
+
+    func toolbarWillAddItem(_ notification: Notification) {
+        guard let item = notification.userInfo?["item"] as? NSToolbarItem, let tool = item.itemIdentifier.tool else { return }
+        item.style = tool == model.tool ? .prominent : .plain
     }
 
     func toolbar(
         _ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
+        if let tool = identifier.tool {
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            item.image = tool.icon.plain(label: tool.title)
+            item.label = tool.title
+            item.paletteLabel = tool.title
+            item.toolTip = "\(tool.title)  \(String(tool.key).uppercased())"
+            item.isBordered = true
+            item.target = self
+            item.action = #selector(toolPicked(_:))
+            return item
+        }
         switch identifier {
-        case .tools:
-            let group = NSToolbarItemGroup(
-                itemIdentifier: identifier,
-                images: Tool.allCases.map { $0.icon.plain(label: $0.title) },
-                selectionMode: .selectOne,
-                labels: Tool.allCases.map(\.title),
-                target: self, action: #selector(toolPicked(_:))
-            )
-            for (tool, item) in zip(Tool.allCases, group.subitems) {
-                item.toolTip = "\(tool.title)  \(String(tool.key).uppercased())"
-            }
-            group.selectedIndex = model.tool.rawValue
-            group.label = L("Tools")
-            toolGroup = group
-            return group
+        case .crop:
+            let item = button(identifier, L("Crop"), .crop, #selector(toggleCrop(_:)), tip: L("Crop  C"))
+            return item
+        case .style:
+            return hosted(identifier, L("Style"), StyleControls(model: model))
+        case .cropControls:
+            return hosted(identifier, L("Crop"), CropControls(model: model))
+        case .cancelCrop:
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            item.title = L("Cancel")
+            item.label = L("Cancel")
+            item.toolTip = L("Leave the image as it was  Esc")
+            item.target = self
+            item.action = #selector(cancelCrop(_:))
+            return item
+        case .applyCrop:
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            item.title = L("Crop")
+            item.label = L("Crop")
+            item.toolTip = L("Crop  Return")
+            item.style = .prominent
+            item.target = self
+            item.action = #selector(applyCrop(_:))
+            return item
         case .background:
             let item = button(identifier, L("Background"), .background, #selector(showBackground(_:)),
                               tip: L("Background"))
@@ -215,6 +276,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         case .float:
             return button(identifier, L("Float"), .float, #selector(floatOnScreen(_:)),
                           tip: L("Float on screen: keeps this screenshot above every window"))
+        case .pin:
+            return button(identifier, L("Pin"), .pin, #selector(pinToMenuBar(_:)), tip: L("Pin to the menu bar"))
         case .save:
             return button(identifier, L("Save"), .save, #selector(saveDocument(_:)), tip: L("Save  ⌘S"))
         case .copy:
@@ -232,6 +295,27 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         default:
             return nil
         }
+    }
+
+    /// A toolbar item that holds SwiftUI controls and grows or shrinks with them.
+    private func hosted(_ identifier: NSToolbarItem.Identifier, _ label: String, _ view: some View) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        let host = NSHostingView(rootView: view)
+        host.sizingOptions = [.intrinsicContentSize]
+        item.view = host
+        item.label = label
+        item.paletteLabel = label
+        item.isBordered = false
+        return item
+    }
+
+    private func showCropToolbar(_ cropping: Bool) {
+        guard let window else { return }
+        canvas.commitText()
+        window.toolbar = cropping ? cropToolbar : markupToolbar
+        cropToolbar.items.first { $0.itemIdentifier == .crop }?.style = .prominent
+        window.invalidateCursorRects(for: canvas)
+        window.makeFirstResponder(canvas)
     }
 
     /// A standard bordered toolbar button, so hover and press come from the system.
@@ -256,11 +340,33 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { item.image = icon.plain(label: item.label) }
     }
 
-    @objc private func toolPicked(_ sender: NSToolbarItemGroup) {
-        guard let tool = Tool(rawValue: sender.selectedIndex) else { return }
+    @objc private func toolPicked(_ sender: NSToolbarItem) {
+        guard let tool = sender.itemIdentifier.tool else { return }
         canvas.commitText()
         model.setTool(tool)
         window?.makeFirstResponder(canvas)
+    }
+
+    /// The current tool's button is filled with the accent colour.
+    private func highlightTool(_ tool: Tool) {
+        for item in markupToolbar.items {
+            guard let itemTool = item.itemIdentifier.tool else { continue }
+            item.style = itemTool == tool ? .prominent : .plain
+        }
+    }
+
+    // MARK: Crop
+
+    @objc func toggleCrop(_ sender: Any?) {
+        canvas.commitText()
+        if model.crop == nil { model.beginCrop() } else { model.cancelCrop() }
+    }
+
+    @objc func cancelCrop(_ sender: Any?) { model.cancelCrop() }
+
+    @objc func applyCrop(_ sender: Any?) {
+        model.applyCrop()
+        if fitsWindow { zoomToFit() }
     }
 
     // MARK: Actions
@@ -302,6 +408,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         guard commitToCapture() != nil else { return }
         close()
         FloatingShots.shared.float(capture)
+    }
+
+    /// Pins the annotated screenshot to the menu bar. Pinning again replaces the earlier copy,
+    /// so the pin always shows the latest marks.
+    @objc func pinToMenuBar(_ sender: Any?) {
+        guard commitToCapture() != nil else { return }
+        let store = PinStore.shared
+        if let earlier = store.pins.first(where: { $0.id == capture.id }) { store.remove(earlier, notify: false) }
+        guard store.pin(capture) else { return }
+        confirm(.pin)
+        model.showToast(L("Pinned"))
     }
 
     @objc func saveDocument(_ sender: Any?) {

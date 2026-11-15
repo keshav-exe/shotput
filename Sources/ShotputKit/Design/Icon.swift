@@ -49,6 +49,24 @@ enum Icon: String {
     case areaDashed = "rectangle.dashed"
     case scissors = "scissors"
     case move = "arrow.right.doc.on.clipboard"
+    case select = "cursorarrow"
+    case filledRectangle = "rectangle.fill"
+    case spotlight = "flashlight.on.fill"
+    case tinted = "square.fill.on.square"
+    case curvedArrow = "arrow.turn.up.right"
+    case doubleArrow = "arrow.left.and.right"
+    case curve = "point.topleft.down.to.point.bottomright.curvepath"
+    case textLabel = "character.textbox"
+    case textOutlined = "character"
+    case counterFilled = "1.circle.fill"
+    case counterSquare = "1.square.fill"
+    case options = "slider.horizontal.3"
+    case blurSecure = "drop.halffull"
+    case blurSmooth = "drop"
+    case blackout = "rectangle.inset.filled"
+    case rotateLeft = "rotate.left"
+    case flipHorizontal = "arrow.left.and.right.righttriangle.left.righttriangle.right"
+    case flipVertical = "arrow.up.and.down.righttriangle.up.righttriangle.down"
 
     /// The symbol at the size its surroundings choose, as toolbars, tabs, and menus expect.
     func plain(label: String? = nil) -> NSImage {
@@ -77,16 +95,18 @@ enum Icon: String {
 extension Tool {
     var icon: Icon {
         switch self {
-        case .arrow: .arrow
-        case .line: .line
+        case .select: .select
         case .rectangle: .rectangle
+        case .filledRectangle: .filledRectangle
         case .ellipse: .ellipse
+        case .line: .line
+        case .arrow: .arrow
         case .text: .text
+        case .redact: .redact
+        case .spotlight: .spotlight
         case .counter: .counter
         case .pen: .pen
         case .highlight: .highlighter
-        case .redact: .redact
-        case .crop: .crop
         }
     }
 }

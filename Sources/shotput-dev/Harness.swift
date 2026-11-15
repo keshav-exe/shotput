@@ -64,9 +64,9 @@ private func mockScreenshot(size: CGSize, scale: CGFloat) -> CGImage {
 func editorHarness(to path: String) {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
-    UserDefaults.standard.removeObject(forKey: "editor.tool")
-    UserDefaults.standard.removeObject(forKey: "editor.color")
-    UserDefaults.standard.removeObject(forKey: "editor.weight")
+    for key in ["editor.toolName", "editor.styles", "editor.snapsToEdges", "NSToolbar Configuration editor.markup"] {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
 
     let capture = Capture(image: mockScreenshot(size: CGSize(width: 620, height: 360), scale: 2), scale: 2)
     let controller = EditorWindowController(capture: capture)
@@ -141,7 +141,7 @@ func editorHarness(to path: String) {
         editor.string = "Wrong colour"
         canvas.commitText()
         expect(model.annotations.count == beforeText + 1, "typed text becomes a label")
-        expect(model.annotations.last?.filled == true, "labels are filled by default")
+        expect(model.annotations.last?.style.text == .pill, "labels are filled by default")
     } else {
         expect(false, "clicking with the text tool opens an inline editor")
     }
@@ -169,8 +169,44 @@ func editorHarness(to path: String) {
     // Style applies to the selection.
     click(canvas, at: CGPoint(x: 444, y: 265))
     expect(model.selectedID == arrowID, "clicking a mark selects it")
-    model.setWeight(.heavy)
-    expect(model.annotations[0].weight == .heavy, "changing weight restyles the selection")
+    model.setStyle { $0.size = 10 }
+    expect(model.annotations[0].style.size == 10, "changing size restyles the selection")
+    model.setStyle { $0.arrow = .double; $0.curved = true }
+    expect(model.annotations[0].style.arrow == .double && model.annotations[0].bend != nil,
+           "arrow style and the curved toggle reshape the selected arrow")
+    model.undo()
+    expect(model.annotations[0].style.arrow == .tapered && model.annotations[0].bend == nil, "and undo takes that back in one step")
+    model.setColor(.teal, coalesce: "picker")
+    model.setColor(.pink, coalesce: "picker")
+    model.undo()
+    expect(model.annotations[0].color == .red, "dragging through the colour picker undoes as one step")
+    model.selectedID = nil
+    expect(model.style(for: .arrow).size == 10, "the tool remembers the last size picked")
+
+    // Per-tool styles and the new tools.
+    model.setTool(.rectangle)
+    model.setStyle { $0.fill = .tinted; $0.dashed = true; $0.cornerRadius = 16 }
+    drag(canvas, from: CGPoint(x: 520, y: 150), to: CGPoint(x: 610, y: 200))
+    expect(model.annotations.last?.style.fill == .tinted && model.annotations.last?.style.dashed == true,
+           "a new rectangle takes the tool's style")
+    model.setTool(.filledRectangle)
+    drag(canvas, from: CGPoint(x: 500, y: 20), to: CGPoint(x: 600, y: 40))
+    expect(model.annotations.last?.tool == .filledRectangle, "the filled rectangle tool draws a solid box")
+    model.setTool(.spotlight)
+    drag(canvas, from: CGPoint(x: 496, y: 310), to: CGPoint(x: 612, y: 352))
+    expect(model.annotations.last?.tool == .spotlight, "the spotlight tool lights an area")
+    let redaction = model.annotations.first { $0.tool == .redact }!.id
+    model.selectedID = redaction
+    for mode in RedactMode.allCases {
+        model.setStyle { $0.redaction = mode }
+        let flat = AnnotationRenderer().flatten(base: model.base, scale: model.scale, annotations: model.annotations, outputScale: 1)
+        expect(flat != nil, "redaction renders as \(mode.rawValue)")
+    }
+    model.setStyle { $0.redaction = .blurSecure }
+    model.selectedID = nil
+    model.setTool(.select)
+    drag(canvas, from: CGPoint(x: 40, y: 330), to: CGPoint(x: 120, y: 340))
+    expect(model.selectedID == nil && model.annotations.allSatisfy({ $0.tool != .select }), "the select tool draws nothing")
 
     // Export.
     let flat = AnnotationRenderer().flatten(base: model.base, scale: model.scale, annotations: model.annotations, outputScale: model.scale)
@@ -178,14 +214,55 @@ func editorHarness(to path: String) {
     let reduced = AnnotationRenderer().flatten(base: model.base, scale: model.scale, annotations: model.annotations, outputScale: 1)
     expect(reduced?.width == 620 && reduced?.height == 360, "standard-resolution export halves it")
 
-    // Crop shifts marks with the image.
-    model.setTool(.crop)
-    drag(canvas, from: CGPoint(x: 150, y: 44), to: CGPoint(x: 620, y: 360))
+    // Crop mode: a box with handles, held to a shape if asked, applied with Crop.
+    let arrowStart = model.annotations[0].endpoints!.from
+    model.beginCrop()
+    expect(model.crop?.rect == CGRect(x: 0, y: 0, width: 620, height: 360), "crop opens on the whole image")
+    model.snapsToEdges = false
+    drag(canvas, from: CGPoint(x: 0, y: 0), to: CGPoint(x: 150, y: 44))
+    expect(model.crop?.rect == CGRect(x: 150, y: 44, width: 470, height: 316), "dragging a corner handle resizes the box")
+    model.snapsToEdges = true
+    drag(canvas, from: CGPoint(x: 150, y: 44), to: CGPoint(x: 146, y: 47))
+    expect(model.crop?.rect.minX == 150 && model.crop?.rect.minY == 44, "with snapping on, the handle sticks to the sidebar and toolbar edges")
+    model.applyCrop()
     settle()
-    expect(model.size == CGSize(width: 470, height: 316), "crop resizes the image")
-    expect(abs(model.annotations[0].endpoints!.from.x - (after.from.x - 150)) < 0.01, "crop moves marks with it")
+    expect(model.crop == nil && model.size == CGSize(width: 470, height: 316), "Crop resizes the image")
+    expect(abs(model.annotations[0].endpoints!.from.x - (arrowStart.x - 150)) < 0.01, "crop moves marks with it")
     model.undo()
     expect(model.size == CGSize(width: 620, height: 360), "undo restores the uncropped image")
+
+    model.beginCrop()
+    model.setCropAspect(.square)
+    expect(model.crop.map { abs($0.rect.width - $0.rect.height) < 0.01 } ?? false, "a 1:1 ratio squares the box")
+    model.setCropPixelSize(width: 400, height: nil)
+    expect(model.crop.map { $0.rect.width == 200 && $0.rect.height == 200 } ?? false, "typing a width in pixels keeps the ratio")
+    model.cancelCrop()
+    expect(model.size == CGSize(width: 620, height: 360), "Cancel leaves the image alone")
+
+    model.rotate(clockwise: true)
+    expect(model.size == CGSize(width: 360, height: 620), "rotating turns the image")
+    let turned = model.annotations[0].endpoints!.from
+    expect(abs(turned.x - (360 - arrowStart.y)) < 0.01 && abs(turned.y - arrowStart.x) < 0.01, "and turns the marks with it")
+    model.flip(horizontally: true)
+    model.resample(toPixels: CGSize(width: 360, height: 620))
+    expect(model.size == CGSize(width: 180, height: 310), "resizing halves the image")
+    model.revertToOriginal()
+    expect(model.size == CGSize(width: 620, height: 360), "Revert to Original brings the first image back")
+    expect(model.annotations[0].endpoints!.from.distance(to: arrowStart) < 0.01, "with every mark where it was drawn")
+    expect(!model.canRevert, "and there is nothing more to revert")
+
+    model.beginCrop()
+    settle()
+    window.displayIfNeeded()
+    settle()
+    if let frameView = window.contentView?.superview,
+       let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) {
+        frameView.cacheDisplay(in: frameView.bounds, to: rep)
+        if let image = rep.cgImage { write(image, scale: 2, to: path.replacingOccurrences(of: ".png", with: "-crop.png")) }
+    }
+    model.cancelCrop()
+    // The spotlight dims the whole render, so it goes before the window is captured.
+    model.perform { $0.removeAll { $0.tool == .spotlight } }
     model.setTool(.arrow)
     model.showToast("Copied")
     settle()

@@ -81,12 +81,16 @@ final class PreviewPanelController {
         scheduleDismissal()
     }
 
-    /// Shrinks the thumbnail into the menu bar icon, so a pin visibly goes where it is kept.
+    /// Shrinks the thumbnail into the notch (or the menu bar icon), so a pin visibly goes where
+    /// it is kept.
     private func flyToMenuBar() {
         dismissal?.invalidate()
         guard let panel else { return }
         self.panel = nil
-        let target = MenuBarAnchor.target(on: panel.screen)
+        // Into the notch, where the pins are, or the menu bar icon in menu bar mode.
+        let target = Settings.shared.pinTarget == .notch
+            ? (NotchGeometry.resting().map { $0.hangingRect($0.size) } ?? MenuBarAnchor.target(on: panel.screen))
+            : MenuBarAnchor.target(on: panel.screen)
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.orderOut(nil)
             NotificationCenter.default.post(name: .shotputDidPin, object: nil)

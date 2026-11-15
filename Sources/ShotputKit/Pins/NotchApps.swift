@@ -63,22 +63,50 @@ enum NotchApps {
     static let cloveDidOpen = Notification.Name("com.kshvbgde.clove.notch.didOpen")
     static let cloveDidClose = Notification.Name("com.kshvbgde.clove.notch.didClose")
     private static var observers: [Any] = []
+    /// Clove opened, closed, launched or quit: what the notch shows at rest may change.
+    static let companionDidChange = Notification.Name("ShotputNotchCompanionDidChange")
+
+    private static var companionIDs: Set<String> { Set(companions.flatMap(\.bundleIDs)) }
+
+    /// Clove is running, so the notch is its to open on hover and click. Shotput's pins then
+    /// wait in a bubble under the notch instead of in ears beside it.
+    static var companionIsRunning: Bool {
+        let ids = companionIDs
+        return NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier.map(ids.contains) ?? false }
+    }
+
+    private static func changed() {
+        NotificationCenter.default.post(name: companionDidChange, object: nil)
+    }
 
     /// Starts hearing when Clove opens and closes. A Clove that quits while open counts as closed.
     static func listen() {
         guard observers.isEmpty else { return }
         let center = DistributedNotificationCenter.default()
         observers.append(center.addObserver(forName: cloveDidOpen, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { companionIsOpen = true }
+            MainActor.assumeIsolated {
+                companionIsOpen = true
+                changed()
+            }
         })
         observers.append(center.addObserver(forName: cloveDidClose, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { companionIsOpen = false }
+            MainActor.assumeIsolated {
+                companionIsOpen = false
+                changed()
+            }
         })
-        let ids = Set(companions.flatMap(\.bundleIDs))
-        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { note in
-            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            MainActor.assumeIsolated { if let id = app?.bundleIdentifier, ids.contains(id) { companionIsOpen = false } }
-        })
+        let ids = companionIDs
+        for name in [NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didLaunchApplicationNotification] {
+            observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { note in
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                let quit = name == NSWorkspace.didTerminateApplicationNotification
+                MainActor.assumeIsolated {
+                    guard let id = app?.bundleIdentifier, ids.contains(id) else { return }
+                    if quit { companionIsOpen = false }
+                    changed()
+                }
+            })
+        }
     }
 
     /// Asks Clove and the rest of ours to fold back to the bare notch, so the island grows out

@@ -377,3 +377,5 @@
 "macOS answers ⇧⌘3 and ⇧⌘4 before any app hears them. Turn its shortcuts off and they’re Shotput’s." = "macOS забирает ⇧⌘3 и ⇧⌘4 раньше любого приложения. Выключите его сочетания, и клавиши достанутся Shotput.";
 "⇧⌘4 for an area, ⇧⌘3 for the screen." = "⇧⌘4 для области, ⇧⌘3 для экрана.";
 "⌘X cuts files in Finder" = "⌘X вырезает файлы в Finder";
+"%d pins. Show them" = "Закреплённых: %d. Показать";
+"Show pins" = "Показать закреплённые";

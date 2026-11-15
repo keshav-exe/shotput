@@ -13,6 +13,10 @@ final class NotchDropHostingView: NSHostingView<NotchDropView> {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// The notch takes the first click even while another app is active, so a click opens the
+    /// tray instead of only waking Shotput.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// The island, hanging from the top of a canvas the size of its largest state.
@@ -22,10 +26,19 @@ struct NotchDropView: View {
 
     var body: some View {
         let size = model.size
-        Group {
-            if model.isMenuBar { MenuBarCard(model: model) } else { island }
-        }
+        ZStack(alignment: .top) {
+            Group {
+                if model.isMenuBar { MenuBarCard(model: model) } else { island }
+            }
             .frame(width: size.width, height: size.height, alignment: .top)
+
+            // With Clove in charge of the notch, the pins wait just under it.
+            if model.showsBubble, model.isResting, !model.isMenuBar {
+                PinsBubble(model: model)
+                    .padding(.top, model.notchSize.height + NotchDropModel.bubbleGap)
+                    .transition(.scale(scale: 0.6, anchor: .top).combined(with: .opacity))
+            }
+        }
             .frame(width: NotchGeometry.canvas.width, height: NotchGeometry.canvas.height, alignment: .top)
             .animation(animation, value: model.phase)
             .animation(animation, value: size)
@@ -91,7 +104,28 @@ struct NotchDropView: View {
         let band = model.notchSize.height
         switch model.phase {
         case .hidden:
-            Color.clear.frame(height: band)
+            // The bare notch, which opens the tray on a click.
+            Color.clear
+                .frame(height: band)
+                .contentShape(.rect)
+                .onTapGesture { model.openTray() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(L("Show pins"))
+        case .badge:
+            Badge(model: model)
+                .frame(height: band)
+                .contentShape(.rect)
+                .onTapGesture { model.openTray() }
+                .transition(.opacity.animation(.easeOut(duration: 0.14)))
+        case .tray:
+            VStack(spacing: 0) {
+                Color.clear.frame(height: band)
+                TrayHost(view: model.trayView)
+                    .frame(width: PinTray.contentSize.width, height: PinTray.contentSize.height)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
+            }
+            .transition(.contentReveal)
         case .armed:
             Ears(model: model)
                 .frame(height: band)
@@ -167,7 +201,7 @@ private struct MenuBarCard: View {
     @ViewBuilder
     private var content: some View {
         switch model.phase {
-        case .hidden, .armed:
+        case .hidden, .armed, .badge, .tray:
             HStack(spacing: 6) {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 11, weight: .semibold))
@@ -214,6 +248,94 @@ private struct Ears: View {
                 .frame(width: NotchDropModel.earWidth, alignment: .leading)
         }
         .accessibilityLabel(L("Drag to the notch to pin"))
+    }
+}
+
+// MARK: - At rest
+
+/// The notch wearing its pins like a badge: a pin on the left, how many on the right. It pops
+/// each time one arrives.
+private struct Badge: View {
+    let model: NotchDropModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .rotationEffect(.degrees(-18))
+                .symbolEffect(.bounce, value: reduceMotion ? 0 : model.bump)
+                .padding(.trailing, 8)
+                .frame(width: NotchDropModel.earWidth, alignment: .trailing)
+            Color.clear
+                .frame(width: model.notchSize.width)
+            Text("\(model.total)")
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .contentTransition(.numericText(value: Double(model.total)))
+                .padding(.leading, 8)
+                .frame(width: NotchDropModel.earWidth, alignment: .leading)
+        }
+        .animation(.spring(duration: 0.3, bounce: 0.3), value: model.total)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(String(format: L("%d pins. Show them"), model.total))
+    }
+}
+
+/// Clove has the notch, so Shotput's pins wait in a small glass bubble just under it.
+private struct PinsBubble: View {
+    let model: NotchDropModel
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: model.openTray) {
+            HStack(spacing: 4) {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .rotationEffect(.degrees(-18))
+                    .symbolEffect(.bounce, value: reduceMotion ? 0 : model.bump)
+                Text("\(model.total)")
+                    .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                    .contentTransition(.numericText(value: Double(model.total)))
+            }
+            .foregroundStyle(.white)
+            .frame(width: NotchDropModel.bubbleSize.width, height: NotchDropModel.bubbleSize.height)
+            .background(Capsule().fill(.black.opacity(isHovered ? 0.86 : 0.78)))
+            .glassEffect(.regular, in: .capsule)
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+            .scaleEffect(isHovered && !reduceMotion ? 1.06 : 1)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.spring(duration: 0.22, bounce: 0.3), value: isHovered)
+        .help(L("Show pins"))
+        .accessibilityLabel(String(format: L("%d pins. Show them"), model.total))
+    }
+}
+
+/// The tray's AppKit content, shown inside the island.
+private struct TrayHost: NSViewRepresentable {
+    let view: NSView?
+
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        place(view, in: container)
+        return container
+    }
+
+    func updateNSView(_ container: NSView, context: Context) {
+        guard container.subviews.first !== view else { return }
+        place(view, in: container)
+    }
+
+    private func place(_ view: NSView?, in container: NSView) {
+        container.subviews.forEach { $0.removeFromSuperview() }
+        guard let view else { return }
+        view.frame = CGRect(origin: .zero, size: PinTray.contentSize)
+        container.addSubview(view)
     }
 }
 

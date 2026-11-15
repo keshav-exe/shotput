@@ -1,6 +1,7 @@
 import AppKit
 
-/// What a left click on the menu bar icon opens: the pinned captures and files in a strip that scrolls
+/// The pinned captures and files, in the notch island (see NotchDrop) or, with pins set to the
+/// menu bar, in a popover under the icon. The same content either way: in a strip that scrolls
 /// sideways. A transient popover, so Esc and clicks elsewhere close it the way they close any
 /// popover; a pin that gets used closes it too. ⌘-click, ⇧-click, or Select picks several pins
 /// to copy, drag, or unpin together.
@@ -55,7 +56,44 @@ final class PinTray: NSObject, NSPopoverDelegate {
         }
     }
 
-    func close() { popover.performClose(nil) }
+    /// Set while the notch island hosts the tray: closing closes the island instead.
+    private var notchClose: (() -> Void)?
+
+    func close() {
+        if let notchClose {
+            notchClose()
+        } else {
+            popover.performClose(nil)
+        }
+    }
+
+    static var contentSize: CGSize { size }
+
+    /// The tray for the notch island to show. `onClose` is how a used pin, or Esc, closes it.
+    func notchContent(onClose: @escaping () -> Void) -> NSView {
+        if popover.isShown { popover.performClose(nil) }
+        notchClose = onClose
+        isPicking = false
+        picked = []
+        lastClicked = nil
+        return makeContent()
+    }
+
+    /// The tray drawn again after the pins changed, keeping what's picked.
+    func refreshedNotchContent() -> NSView {
+        let ids = Set(PinStore.shared.pins.map(\.id))
+        picked.removeAll { !ids.contains($0) }
+        if ids.isEmpty { isPicking = false }
+        return makeContent()
+    }
+
+    func notchDidClose() {
+        notchClose = nil
+        isPicking = false
+        picked = []
+        lastClicked = nil
+        cells = []
+    }
 
     func popoverDidClose(_ notification: Notification) {
         closedAt = Date()

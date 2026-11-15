@@ -28,11 +28,16 @@ func notchHarness(to path: String) {
         ("targeted", .targeted, DragPayload(count: 3, icons: files)),
         ("pinned", .pinned(3), DragPayload(count: 3, icons: files)),
         ("already", .alreadyPinned, DragPayload(count: 1, icons: files)),
+        ("badge", .badge, DragPayload()),
+        ("tray", .tray, DragPayload()),
+        ("bubble", .hidden, DragPayload()),
     ]
     let frame = geometry.windowFrame
     let top = (NSScreen.screens.first?.frame.maxY ?? frame.maxY) - frame.maxY
     for (name, phase, payload) in states {
         model.payload = payload
+        model.showsBubble = name == "bubble"
+        if phase == .tray { model.trayView = PinTray.shared.notchContent {} }
         model.phase = phase
         RunLoop.main.run(until: Date().addingTimeInterval(0.9))
         let file = "\(base)-\(name).png"

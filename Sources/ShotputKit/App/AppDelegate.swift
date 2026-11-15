@@ -182,6 +182,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
             PinTray.shared.close()
             showStatusMenu()
+        } else if Settings.shared.pinTarget == .notch {
+            // One tray, in the notch, wherever it's opened from.
+            NotchDrop.shared.toggleTray()
         } else {
             PinTray.shared.toggle(from: sender)
         }

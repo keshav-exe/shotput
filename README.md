@@ -144,7 +144,12 @@ clipboard is put back after the pin shortcut copies.
 Pinned files are copied into Shotput's container (an instant clone on APFS), so they stay put
 if the original moves. Dropping the same file again moves it to the front.
 
-Click the menu bar icon to open the tray. It holds the last 15 pins in a strip that scrolls
+The notch wears your pins like a badge: ears with a pin and how many, which pop as each one
+arrives. Hover the notch to peek at the tray and click to open it, right there in the notch; Esc
+or a click anywhere else closes it. The menu bar icon opens the same tray, and a click on the bare
+notch does too. With Clove running, the notch is Clove's to open, so the pins wait in a small
+bubble under it: click that and Clove steps aside while the tray opens. In menu bar mode the tray
+drops out under the icon instead. The tray holds the last 15 pins in a strip that scrolls
 sideways. Click a pin to copy it, Option-click to annotate a picture or open any other file, or
 drag it into any app.
 

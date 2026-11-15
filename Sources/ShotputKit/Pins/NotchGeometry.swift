@@ -62,6 +62,16 @@ struct NotchGeometry: Equatable {
         (NSScreen.underMouse ?? NSScreen.screens.first).flatMap(NotchGeometry.init)
     }
 
+    /// Where the island rests between drags: the screen with the notch, else the main one.
+    @MainActor
+    static func resting() -> NotchGeometry? {
+        let screens = NSScreen.screens
+        if let notched = screens.first(where: { $0.safeAreaInsets.top > 0 }), let geometry = NotchGeometry(notched) {
+            return geometry
+        }
+        return (NSScreen.main ?? screens.first).flatMap(NotchGeometry.init)
+    }
+
     /// Whether the Mac's built-in display has a notch, for how Shotput talks about it.
     @MainActor
     static var hasHardwareNotch: Bool {
@@ -79,6 +89,11 @@ struct NotchGeometry: Equatable {
             width: Self.canvas.width,
             height: Self.canvas.height
         )
+    }
+
+    /// The pins bubble hanging just under the notch, when Clove has the notch.
+    func bubbleRect(_ size: CGSize, gap: CGFloat) -> CGRect {
+        CGRect(x: midX - size.width / 2, y: screenFrame.maxY - self.size.height - gap - size.height, width: size.width, height: size.height)
     }
 
     /// A rect of `size`, hanging from the top edge of the screen, centred on the notch.

@@ -167,6 +167,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(.separator())
         add(.annotateLast, #selector(annotateLast))
         add(.annotateClipboard, #selector(annotateClipboard))
+        let float = menu.addItem(withTitle: L("Float Last Capture"), action: #selector(floatLast), keyEquivalent: "")
+        float.target = self
+        float.image = Icon.float.plain()
+        if !FloatingShots.shared.isEmpty {
+            menu.addItem(withTitle: L("Close All Floating Screenshots"), action: #selector(closeFloats), keyEquivalent: "").target = self
+        }
         if shortcuts[.toolbar]?.isSet == true { add(.toolbar, #selector(openCaptureBar)) }
         menu.addItem(.separator())
         let settings = menu.addItem(withTitle: L("Settings…"), action: #selector(showSettings(_:)), keyEquivalent: ",")
@@ -199,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(annotateLast) { return CaptureCoordinator.shared.lastCapture != nil }
+        if item.action == #selector(annotateLast) || item.action == #selector(floatLast) { return CaptureCoordinator.shared.lastCapture != nil }
         if item.action == #selector(annotateClipboard) { return NSPasteboard.general.canReadObject(forClasses: [NSImage.self]) }
         return true
     }
@@ -213,6 +219,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func copyText() { HotAction.text.perform() }
     @objc private func annotateClipboard() { CaptureCoordinator.shared.annotateClipboard() }
     @objc private func openCaptureBar() { CaptureBar.shared.show() }
+    @objc private func floatLast() {
+        guard let capture = CaptureCoordinator.shared.lastCapture else { return }
+        FloatingShots.shared.float(capture)
+    }
+    @objc private func closeFloats() { FloatingShots.shared.closeAll() }
 
     // MARK: Settings and the welcome guide
 

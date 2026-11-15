@@ -43,6 +43,10 @@ final class PreviewPanelController {
             guard PinStore.shared.pin(capture) else { return }
             self?.flyToMenuBar()
         }
+        view.onFloat = { [weak self] in
+            self?.dismiss(animated: false)
+            FloatingShots.shared.float(capture)
+        }
         view.onDragStart = { [weak self] in
             self?.dismissal?.invalidate()
             NotchDrop.shared.beginDragging(capture)
@@ -204,6 +208,7 @@ private final class PreviewView: NSView, NSDraggingSource {
     var onSave: (() -> Void)?
     var onClose: (() -> Void)?
     var onPin: (() -> Void)?
+    var onFloat: (() -> Void)?
     var onDragStart: (() -> Void)?
     var onDragEnd: (() -> Void)?
 
@@ -246,6 +251,7 @@ private final class PreviewView: NSView, NSDraggingSource {
         copyButton = copy
         buttons.addArrangedSubview(copy)
         buttons.addArrangedSubview(button(.save, L("Save"), #selector(save)))
+        buttons.addArrangedSubview(button(.float, L("Float on screen"), #selector(floatOnScreen)))
         buttons.addArrangedSubview(button(.pin, L("Pin to the menu bar"), #selector(pin)))
         addSubview(buttons)
         // Dismiss sits apart in the corner, as on the system's own screenshot thumbnail.
@@ -284,6 +290,7 @@ private final class PreviewView: NSView, NSDraggingSource {
         onCopy?()
     }
     @objc private func pin() { onPin?() }
+    @objc private func floatOnScreen() { onFloat?() }
     @objc private func save() { onSave?() }
     @objc private func close() { onClose?() }
 

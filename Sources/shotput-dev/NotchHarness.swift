@@ -12,6 +12,8 @@ func notchHarness(to path: String) {
     guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first,
           let geometry = NotchGeometry(screen) else { fatalError("No screen") }
 
+    // Run from the package, the harness has no bundle icon; the ears should show Shotput's.
+    if let icon = NSImage(contentsOfFile: "Resources/AppIcon.icns") { AppMark.image = icon }
     let model = NotchDropModel()
     model.geometry = geometry
     model.total = 4
@@ -30,13 +32,13 @@ func notchHarness(to path: String) {
         ("already", .alreadyPinned, DragPayload(count: 1, icons: files)),
         ("badge", .badge, DragPayload()),
         ("tray", .tray, DragPayload()),
-        ("bubble", .hidden, DragPayload()),
+        ("side-bubble", .hidden, DragPayload()),
     ]
     let frame = geometry.windowFrame
     let top = (NSScreen.screens.first?.frame.maxY ?? frame.maxY) - frame.maxY
     for (name, phase, payload) in states {
         model.payload = payload
-        model.showsBubble = name == "bubble"
+        model.showsSideBubble = name == "side-bubble"
         if phase == .tray { model.trayView = PinTray.shared.notchContent {} }
         model.phase = phase
         RunLoop.main.run(until: Date().addingTimeInterval(0.9))

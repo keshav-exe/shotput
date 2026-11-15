@@ -85,6 +85,14 @@ struct GeneralPane: View {
     @State private var canRecordScreen = CGPreflightScreenCaptureAccess()
     @State private var confirmsReset = false
 
+    /// Why the menu bar icon is on, or what hiding it means, in step with where pins live.
+    private var menuBarIconDetail: String {
+        if settings.pinTarget == .menuBar {
+            return L("Your pins live under it. To hide it, keep pins in the notch instead, under Pins.")
+        }
+        return L("Click it for pins, which open in the notch. When hidden, open Shotput again from Applications or Spotlight to get back here.")
+    }
+
     var body: some View {
         Form {
             if !canRecordScreen {
@@ -111,8 +119,9 @@ struct GeneralPane: View {
                     }
                 Toggle(isOn: $settings.showsMenuBarIcon) {
                     Text(L("Show in the menu bar"))
-                    Text(L("When hidden, open Shotput again from Applications or Spotlight to get back here."))
+                    Text(menuBarIconDetail)
                 }
+                .disabled(settings.pinTarget == .menuBar)
             }
 
             Section(L("Feedback")) {
@@ -506,7 +515,22 @@ struct PinsPane: View {
     @ObservedObject private var settings = Settings.shared
     @State private var canPressKeys = CGPreflightPostEventAccess()
 
-        var body: some View {
+        /// Where a drag goes, and where pins open afterwards, so the notch and the menu bar icon
+    /// never seem to be two different trays.
+    private var pinsFooter: String {
+        if settings.pinTarget == .menuBar {
+            return L("Start a drag and a card drops out under Shotput’s menu bar icon to take it. Click the icon to see your pins. It stays in the menu bar while pins live there.")
+        }
+        let drag = NotchGeometry.hasHardwareNotch
+            ? L("Start a drag and the notch grows a pin; bring it close and it opens to take the drop.")
+            : L("Start a drag and the top of the screen grows a pin; bring it close and it opens to take the drop.")
+        let open = settings.showsMenuBarIcon
+            ? (NotchGeometry.hasHardwareNotch ? L("Click the notch, or Shotput’s menu bar icon, to see your pins.") : L("Click the top of the screen, or Shotput’s menu bar icon, to see your pins."))
+            : (NotchGeometry.hasHardwareNotch ? L("Click the notch to see your pins.") : L("Click the top of the screen to see your pins."))
+        return drag + " " + open
+    }
+
+    var body: some View {
         Form {
             Section {
                 Picker(L("Drag to pin at"), selection: $settings.pinTarget) {
@@ -519,11 +543,7 @@ struct PinsPane: View {
             } header: {
                 Text(L("Dragging"))
             } footer: {
-                Text(settings.pinTarget == .menuBar
-                     ? L("Start a drag and a card drops out under Shotput’s menu bar icon to take it.")
-                     : NotchGeometry.hasHardwareNotch
-                        ? L("Start a drag and the notch grows a pin; bring it close and it opens to take the drop.")
-                        : L("Start a drag and the top of the screen grows a pin; bring it close and it opens to take the drop."))
+                Text(pinsFooter)
                     .foregroundStyle(.secondary)
             }
 

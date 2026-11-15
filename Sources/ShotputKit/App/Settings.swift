@@ -149,7 +149,13 @@ final class Settings: ObservableObject {
         }
     }
 
-    @Published var showsMenuBarIcon: Bool { didSet { store(showsMenuBarIcon, Key.showsMenuBarIcon) } }
+    /// Pins kept under the menu bar icon need the icon, so it can't be hidden while they are.
+    @Published var showsMenuBarIcon: Bool {
+        didSet {
+            if !showsMenuBarIcon && pinTarget == .menuBar { showsMenuBarIcon = true; return }
+            store(showsMenuBarIcon, Key.showsMenuBarIcon)
+        }
+    }
     @Published var playsSound: Bool { didSet { store(playsSound, Key.playsSound) } }
     @Published var allowsLinks: Bool { didSet { store(allowsLinks, Key.allowsLinks) } }
 
@@ -183,7 +189,16 @@ final class Settings: ObservableObject {
     @Published var recognizesShapes: Bool { didSet { store(recognizesShapes, Key.recognizesShapes) } }
     /// The notch opens as a drop target whenever files are dragged in any app, not only previews.
     @Published var pinsDraggedFiles: Bool { didSet { store(pinsDraggedFiles, Key.pinsDraggedFiles) } }
-    @Published var pinTarget: PinTarget { didSet { store(pinTarget.rawValue, Key.pinTarget) } }
+    /// Moving pins under the menu bar icon brings the icon back if it was hidden.
+    @Published var pinTarget: PinTarget {
+        didSet {
+            store(pinTarget.rawValue, Key.pinTarget)
+            if pinTarget == .menuBar && !showsMenuBarIcon {
+            showsMenuBarIcon = true
+            store(true, Key.showsMenuBarIcon)
+        }
+        }
+    }
     /// ⌘X cuts files in Finder and ⌘V moves them.
     @Published var cutsInFinder: Bool { didSet { store(cutsInFinder, Key.cutsInFinder) } }
 
@@ -260,6 +275,11 @@ final class Settings: ObservableObject {
         shortcuts = loaded
         saveFolder = Self.resolveBookmark(defaults.data(forKey: Key.saveFolder))
         screenshotFolder = Self.resolveBookmark(defaults.data(forKey: Key.macScreenshotFolder))
+        // An older Shotput let the icon hide with pins kept under it, leaving them nowhere to see.
+        if pinTarget == .menuBar && !showsMenuBarIcon {
+            showsMenuBarIcon = true
+            store(true, Key.showsMenuBarIcon)
+        }
     }
 
     private func store(_ value: Any, _ key: String) { defaults.set(value, forKey: key) }

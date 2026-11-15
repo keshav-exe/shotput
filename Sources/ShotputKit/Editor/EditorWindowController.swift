@@ -7,6 +7,7 @@ private extension NSToolbarItem.Identifier {
     static let recognizeText = NSToolbarItem.Identifier("recognizeText")
     static let background = NSToolbarItem.Identifier("background")
     static let save = NSToolbarItem.Identifier("save")
+    static let float = NSToolbarItem.Identifier("float")
     static let copy = NSToolbarItem.Identifier("copy")
     static let done = NSToolbarItem.Identifier("done")
 }
@@ -178,7 +179,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     // MARK: Toolbar
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.tools, .flexibleSpace, .background, .recognizeText, .save, .copy, .done]
+        [.tools, .flexibleSpace, .background, .recognizeText, .float, .save, .copy, .done]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -211,6 +212,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         case .recognizeText:
             return button(identifier, L("Copy text"), .readText, #selector(copyRecognizedText(_:)),
                           tip: L("Copy text: reads the text in this screenshot and copies it"))
+        case .float:
+            return button(identifier, L("Float"), .float, #selector(floatOnScreen(_:)),
+                          tip: L("Float on screen: keeps this screenshot above every window"))
         case .save:
             return button(identifier, L("Save"), .save, #selector(saveDocument(_:)), tip: L("Save  ⌘S"))
         case .copy:
@@ -291,6 +295,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc func done(_ sender: Any?) {
         if let png = commitToCapture() { Output.copyToClipboard(png) }
         close()
+    }
+
+    /// Keeps the annotated screenshot on screen, above everything, in place of the editor.
+    @objc func floatOnScreen(_ sender: Any?) {
+        guard commitToCapture() != nil else { return }
+        close()
+        FloatingShots.shared.float(capture)
     }
 
     @objc func saveDocument(_ sender: Any?) {

@@ -33,18 +33,18 @@ final class NotchDropModel {
         case pinned(Int)
         case alreadyPinned
         case failed
-        /// The pins themselves, opened from the notch, the ears, the bubble or the menu bar icon.
+        /// The pins themselves, opened from the notch, its ears or the menu bar icon.
         case tray
     }
 
     var phase: Phase = .hidden
-    /// With Clove in charge of the notch: Shotput's pins wait in a small bubble under it.
-    var showsBubble = false
+    /// Clove is wearing its own ears, so at rest the pins sit in a bubble past them instead.
+    var showsSideBubble = false
     /// Counts up as pins arrive, so the badge can pop.
     var bump = 0
     /// The tray's AppKit content, while the tray is open.
     var trayView: NSView?
-    /// What a click on the notch, the ears or the bubble does. Set by the controller.
+    /// What a click on the notch or its ears does. Set by the controller.
     @ObservationIgnored var openTray: () -> Void = {}
     var geometry: NotchGeometry?
     var payload = DragPayload()
@@ -65,9 +65,6 @@ final class NotchDropModel {
     /// Resting: the bare notch or its badge, ready for a click.
     var isResting: Bool { phase == .hidden || phase == .badge }
 
-    static let bubbleSize = CGSize(width: 46, height: 22)
-    static let bubbleGap: CGFloat = 5
-
     var isMoment: Bool {
         switch phase {
         case .pinned, .alreadyPinned, .failed: true
@@ -78,7 +75,15 @@ final class NotchDropModel {
     // MARK: Size
 
     static let shoulder: CGFloat = 10
-    static let earWidth: CGFloat = 34
+    /// The bubble beside Clove's ears: notch-dark, a little shorter than the notch.
+    static let sideBubbleSize = CGSize(width: 46, height: 24)
+    static let sideBubbleGap: CGFloat = 6
+
+    /// The bubble's centre, from the notch's centre: past Clove's right ear, and a gap.
+    var sideBubbleOffset: CGFloat {
+        notchSize.width / 2 + NotchApps.companionEarReach + Self.sideBubbleGap + Self.sideBubbleSize.width / 2
+    }
+    static let earWidth: CGFloat = 40
 
     /// The gap between the menu bar and a card hanging under its icon.
     static let menuBarGap: CGFloat = 6
@@ -149,8 +154,9 @@ final class NotchDropModel {
 ///   ears, opens into a well as the drag comes close, and pins what's let go over it.
 /// - At rest it wears its pins like a badge: ears with a pin and how many. Hover to peek at the
 ///   tray, click to open it; Esc or a click anywhere else closes it. The bare notch opens it too.
-/// - With Clove running the notch is Clove's to open, so the pins wait in a small bubble under
-///   it instead; clicking that claims the notch (Clove folds) and opens the tray there.
+/// - With Clove running the notch itself is Clove's to open, so only the ears answer the pointer;
+///   clicking them claims the notch (Clove folds) and opens the tray there. While Clove's own
+///   island is open the ears step out of its way.
 /// With another notch app in charge of the notch, Settings can hang the well, and the tray, under
 /// the menu bar icon instead.
 @MainActor
@@ -251,27 +257,54 @@ final class NotchDrop {
         poll != nil || isDropping || isWaitingForCompanion || !model.isResting
     }
 
-    /// Without Clove the notch rests as a badge when there are pins, the bare notch when there
-    /// aren't, and takes a click either way. With Clove it rests as the bubble under the notch,
-    /// out of the way while Clove's own island is open.
+    /// The notch rests as a badge when there are pins, the bare notch when there aren't. With
+    /// Clove running, the badge steps aside while Clove's own island is open.
     private var restPhase: NotchDropModel.Phase {
-        !NotchApps.companionIsRunning && model.total > 0 ? .badge : .hidden
+        guard model.total > 0 else { return .hidden }
+        guard NotchApps.companionIsRunning else { return .badge }
+        return NotchApps.companionIsOpen || NotchApps.companionShowsEars ? .hidden : .badge
+    }
+
+    /// Clove has ears up and nothing open: the pins step out into a bubble past them.
+    private var restShowsSideBubble: Bool {
+        model.total > 0 && NotchApps.companionIsRunning && NotchApps.companionShowsEars && !NotchApps.companionIsOpen
+    }
+
+    private func sideBubbleRect(_ geometry: NotchGeometry) -> CGRect {
+        let size = NotchDropModel.sideBubbleSize
+        let midY = geometry.screenFrame.maxY - model.notchSize.height / 2
+        return CGRect(x: geometry.midX + model.sideBubbleOffset - size.width / 2, y: midY - size.height / 2, width: size.width, height: size.height)
+    }
+
+    /// Where the resting notch answers the pointer, in screen coordinates. Without Clove it's
+    /// the notch, its ears, and a sliver below so reaching for it needs no pixel-perfect aim.
+    /// With Clove the notch is Clove's, so only the ears, and only while they're showing.
+    private func restingHotRects(_ geometry: NotchGeometry) -> [CGRect] {
+        let band = model.notchSize.height + 4
+        let island = geometry.hangingRect(CGSize(width: model.size(for: .badge).width, height: band))
+        guard NotchApps.companionIsRunning else { return [island] }
+        if model.showsSideBubble { return [sideBubbleRect(geometry).insetBy(dx: -4, dy: -4)] }
+        guard model.phase == .badge else { return [] }
+        let ear = NotchDropModel.earWidth + model.shoulderRadius(for: .badge)
+        return [
+            CGRect(x: island.minX, y: island.minY, width: ear, height: band),
+            CGRect(x: island.maxX - ear, y: island.minY, width: ear, height: band),
+        ]
     }
 
     func refreshRest() {
         model.total = PinStore.shared.pins.count
         guard !isBusy else { return }
         guard Settings.shared.pinTarget == .notch, let geometry = NotchGeometry.resting() else {
-            model.showsBubble = false
+            model.showsSideBubble = false
             model.phase = .hidden
             window.orderOut(nil)
             return
         }
         place(geometry)
-        let companion = NotchApps.companionIsRunning
-        model.showsBubble = companion && model.total > 0 && !NotchApps.companionIsOpen
         model.phase = restPhase
-        if companion && !model.showsBubble {
+        model.showsSideBubble = restShowsSideBubble
+        if NotchApps.companionIsRunning && model.phase == .hidden && !model.showsSideBubble {
             window.orderOut(nil)
         } else {
             window.orderFrontRegardless()
@@ -303,7 +336,7 @@ final class NotchDrop {
             place(geometry)
             // Clove folds on the claim, so the tray opens out of a bare notch.
             if NotchApps.companionIsRunning { NotchApps.claim() }
-            model.showsBubble = false
+            model.showsSideBubble = false
             model.total = PinStore.shared.pins.count
             model.trayView = PinTray.shared.notchContent { [weak self] in self?.closeTray() }
             window.orderFrontRegardless()
@@ -394,25 +427,22 @@ final class NotchDrop {
         let over: Bool
         if model.phase == .tray {
             over = island.insetBy(dx: -2, dy: -2).contains(location)
-        } else if model.showsBubble {
-            over = geometry.bubbleRect(NotchDropModel.bubbleSize, gap: NotchDropModel.bubbleGap).insetBy(dx: -4, dy: -4).contains(location)
-        } else if !NotchApps.companionIsRunning {
-            // The notch plus a sliver below it, so reaching for it needs no pixel-perfect aim.
-            over = geometry.hangingRect(CGSize(width: island.width, height: model.notchSize.height + 4)).contains(location)
         } else {
-            over = false
+            over = restingHotRects(geometry).contains { $0.contains(location) }
         }
         window.ignoresMouseEvents = !over
 
         switch model.phase {
-        case .badge where over && NSEvent.pressedMouseButtons == 0:
+        case .badge where over && NSEvent.pressedMouseButtons == 0, .hidden where over && model.showsSideBubble && NSEvent.pressedMouseButtons == 0:
             guard hoverTask == nil else { return }
             hoverTask = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(160))
                 guard let self, !Task.isCancelled else { return }
                 self.hoverTask = nil
-                let notch = geometry.hangingRect(CGSize(width: island.width, height: self.model.notchSize.height + 4))
-                if self.model.phase == .badge, notch.contains(NSEvent.mouseLocation) { self.openTray(focused: false) }
+                let location = NSEvent.mouseLocation
+                if self.model.isResting, self.restingHotRects(geometry).contains(where: { $0.contains(location) }) {
+                    self.openTray(focused: false)
+                }
             }
         case .tray where !isTrayFocused:
             // A little slack round the edge, so a pointer that drifts off for a moment doesn't snap it shut.
@@ -486,6 +516,7 @@ final class NotchDrop {
         }
         hoverTask?.cancel()
         window.ignoresMouseEvents = true
+        model.showsSideBubble = false
 
         model.payload = payload
         model.total = PinStore.shared.pins.count
@@ -508,7 +539,6 @@ final class NotchDrop {
         // A frame at notch size first, so the island grows out of it.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.model.isResting || self.model.isMoment else { return }
-            self.model.showsBubble = false
             self.model.phase = .armed
             self.track()
         }
@@ -547,8 +577,7 @@ final class NotchDrop {
             show(atNotch: true)
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.model.isResting else { return }
-                self.model.showsBubble = false
-                self.model.phase = .near
+                    self.model.phase = .near
             }
             return
         }

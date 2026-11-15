@@ -26,6 +26,7 @@ enum Icon: String {
     case check = "checkmark.circle.fill"
     case checkmark = "checkmark"
     case pin = "pin"
+    case float = "pip"
     case settings = "gearshape"
     case capture = "viewfinder"
     case folder = "folder"

@@ -91,11 +91,6 @@ struct NotchGeometry: Equatable {
         )
     }
 
-    /// The pins bubble hanging just under the notch, when Clove has the notch.
-    func bubbleRect(_ size: CGSize, gap: CGFloat) -> CGRect {
-        CGRect(x: midX - size.width / 2, y: screenFrame.maxY - self.size.height - gap - size.height, width: size.width, height: size.height)
-    }
-
     /// A rect of `size`, hanging from the top edge of the screen, centred on the notch.
     func hangingRect(_ size: CGSize) -> CGRect {
         CGRect(x: midX - size.width / 2, y: screenFrame.maxY - size.height, width: size.width, height: size.height)

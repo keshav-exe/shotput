@@ -5,6 +5,7 @@
 //   shotput-dev overlay out.png   offscreen selection-overlay checks, plus renders
 //   shotput-dev settings out.png  renders every Settings tab and welcome step, checks they fit
 //   shotput-dev notch out.png     shows the notch drop island in each state and captures it
+//   shotput-dev float out.png     floats two screenshots, checks resizing and snapping, captures them
 //   shotput-dev installer out.png the installer window background, 660 by 400 at 2x
 import AppKit
 import ShotputKit
@@ -156,6 +157,7 @@ case "editor": MainActor.assumeIsolated { editorHarness(to: arguments[2]) }
 case "overlay": MainActor.assumeIsolated { overlayHarness(to: arguments[2]) }
 case "settings": MainActor.assumeIsolated { settingsHarness(to: arguments[2]) }
 case "notch": MainActor.assumeIsolated { notchHarness(to: arguments[2]) }
+case "float": MainActor.assumeIsolated { floatHarness(to: arguments[2]) }
 case "installer": installerBackground(to: arguments[2])
 case "film-capture": MainActor.assumeIsolated { filmCapture(dir: arguments[2]) }
 case "film-onboard": MainActor.assumeIsolated { filmOnboard(dir: arguments[2]) }

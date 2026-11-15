@@ -286,7 +286,8 @@
 "Weekday, Fri" = "День недели, пт";
 "Weekday, Friday" = "День недели, пятница";
 "Welcome to Shotput" = "Добро пожаловать в Shotput";
-"When hidden, open Shotput again from Applications or Spotlight to get back here." = "Если значок скрыт, откройте Shotput из папки «Программы» или через Spotlight, чтобы вернуться сюда.";
+"Click it for pins, which open in the notch. When hidden, open Shotput again from Applications or Spotlight to get back here." = "Нажмите на него, чтобы открыть закреплённое в вырезе. Если значок скрыт, откройте Shotput из папки «Программы» или через Spotlight, чтобы вернуться сюда.";
+"Your pins live under it. To hide it, keep pins in the notch instead, under Pins." = "Под ним хранится закреплённое. Чтобы скрыть значок, перенесите закреплённое в вырез в разделе «Закреплённые».";
 "While selecting" = "При выделении";
 "White" = "Белый";
 "Window" = "Окно";
@@ -355,7 +356,11 @@
 "Shotput can’t press keys yet" = "Shotput пока не может нажимать клавиши";
 "Shotput’s captures and macOS’s own recorder, in one bar." = "Снимки Shotput и запись экрана macOS на одной панели.";
 "Shotput’s island opens there while you drag, in place of %1$@’s. Turn off %2$@’s file shelf so only one opens." = "Пока вы перетаскиваете, там открывается остров Shotput вместо острова %1$@. Выключите полку файлов в %2$@, чтобы открывался только один.";
-"Start a drag and a card drops out under Shotput’s menu bar icon to take it." = "Начните перетаскивать, и под значком Shotput в меню-баре появится карточка, которая примет файл.";
+"Start a drag and a card drops out under Shotput’s menu bar icon to take it. Click the icon to see your pins. It stays in the menu bar while pins live there." = "Начните перетаскивать, и под значком Shotput в меню-баре появится карточка, которая примет файл. Нажмите на значок, чтобы увидеть закреплённое. Пока закреплённое хранится там, значок остаётся в меню-баре.";
+"Click the notch, or Shotput’s menu bar icon, to see your pins." = "Нажмите на вырез или на значок Shotput в меню-баре, чтобы увидеть закреплённое.";
+"Click the top of the screen, or Shotput’s menu bar icon, to see your pins." = "Нажмите на верх экрана или на значок Shotput в меню-баре, чтобы увидеть закреплённое.";
+"Click the notch to see your pins." = "Нажмите на вырез, чтобы увидеть закреплённое.";
+"Click the top of the screen to see your pins." = "Нажмите на верх экрана, чтобы увидеть закреплённое.";
 "Start a drag and the notch grows a pin; bring it close and it opens to take the drop." = "Начните перетаскивать, и рядом с вырезом появится булавка. Поднесите файл ближе, и вырез раскроется, чтобы его принять.";
 "Start a drag and the top of the screen grows a pin; bring it close and it opens to take the drop." = "Начните перетаскивать, и вверху экрана появится булавка. Поднесите файл ближе, и она раскроется, чтобы его принять.";
 "Take files dragged in any app" = "Принимать файлы из любого приложения";
@@ -379,3 +384,19 @@
 "⌘X cuts files in Finder" = "⌘X вырезает файлы в Finder";
 "%d pins. Show them" = "Закреплённых: %d. Показать";
 "Show pins" = "Показать закреплённые";
+
+/* Floating screenshots */
+"Close All Floating Screenshots" = "Закрыть все плавающие снимки";
+"Float" = "Поверх окон";
+"Float Last Capture" = "Последний снимок поверх окон";
+"Float on screen" = "Поверх окон";
+"Float on screen: keeps this screenshot above every window" = "Поверх окон: снимок остаётся над всеми окнами";
+"Floating screenshot" = "Плавающий снимок";
+"Floating screenshot. Double-click to annotate." = "Плавающий снимок. Дважды нажмите, чтобы разметить.";
+"Lock Position and Size" = "Закрепить положение и размер";
+"Locked" = "Закреплено";
+"Opacity" = "Непрозрачность";
+"Opacity %d%%" = "Непрозрачность %d%%";
+"Saved" = "Сохранено";
+"Shadow" = "Тень";
+"Unlocked" = "Откреплено";

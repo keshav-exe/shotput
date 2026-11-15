@@ -32,16 +32,18 @@ struct NotchDropView: View {
             }
             .frame(width: size.width, height: size.height, alignment: .top)
 
-            // With Clove in charge of the notch, the pins wait just under it.
-            if model.showsBubble, model.isResting, !model.isMenuBar {
-                PinsBubble(model: model)
-                    .padding(.top, model.notchSize.height + NotchDropModel.bubbleGap)
-                    .transition(.scale(scale: 0.6, anchor: .top).combined(with: .opacity))
+            // Clove is wearing its own ears: the pins sit just past them, like a second live activity.
+            if model.showsSideBubble, model.isResting, !model.isMenuBar {
+                SideBubble(model: model)
+                    .padding(.top, (model.notchSize.height - NotchDropModel.sideBubbleSize.height) / 2)
+                    .offset(x: model.sideBubbleOffset)
+                    .transition(.scale(scale: 0.4).combined(with: .opacity))
             }
         }
             .frame(width: NotchGeometry.canvas.width, height: NotchGeometry.canvas.height, alignment: .top)
             .animation(animation, value: model.phase)
             .animation(animation, value: size)
+            .animation(animation, value: model.showsSideBubble)
             // Local, not preferred: in the guide's scene this mustn't turn the whole window dark.
             .modifier(DarkOnNotch(isOn: model.isHardware))
     }
@@ -226,86 +228,101 @@ private struct MenuBarCard: View {
 
 // MARK: - Ears
 
-/// The armed notch: a pin on the left, how many are coming on the right, the notch between.
+/// Shotput's ears either side of the notch: its icon on the left, a pin and a count on the right.
+/// Armed, the count is what's being dragged; at rest, how many pins are waiting, and the pin
+/// bounces each time one arrives.
+private struct EarsRow: View {
+    let model: NotchDropModel
+    let count: Int
+    var bump = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 0) {
+            AppMark()
+                .padding(.trailing, 9)
+                .frame(width: NotchDropModel.earWidth, alignment: .trailing)
+            Color.clear
+                .frame(width: model.notchSize.width)
+            HStack(spacing: 3) {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Palette.accent.color)
+                    .rotationEffect(.degrees(-18))
+                    .symbolEffect(.bounce, value: reduceMotion ? 0 : bump)
+                Text("\(count)")
+                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.94))
+                    .contentTransition(.numericText(value: Double(count)))
+            }
+            .padding(.leading, 8)
+            .frame(width: NotchDropModel.earWidth, alignment: .leading)
+        }
+        .animation(.spring(duration: 0.3, bounce: 0.3), value: count)
+    }
+}
+
+/// Shotput's app icon, small enough to sit in the menu bar's height beside the notch.
+struct AppMark: View {
+    /// Set by development tools that run outside the bundle; otherwise the bundle's own icon.
+    @MainActor static var image: NSImage?
+
+    var body: some View {
+        Image(nsImage: Self.image ?? NSImage(named: "AppIcon") ?? NSApp.applicationIconImage)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 17, height: 17)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The armed notch: Shotput on the left, how many are coming on the right, the notch between.
 private struct Ears: View {
     let model: NotchDropModel
 
     var body: some View {
-        HStack(spacing: 0) {
-            Image(systemName: "pin.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Palette.accent.color)
-                .rotationEffect(.degrees(-18))
-                .padding(.trailing, 8)
-                .frame(width: NotchDropModel.earWidth, alignment: .trailing)
-            Color.clear
-                .frame(width: model.notchSize.width)
-            Text("\(model.payload.count)")
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.primary)
-                .contentTransition(.numericText())
-                .padding(.leading, 8)
-                .frame(width: NotchDropModel.earWidth, alignment: .leading)
-        }
-        .accessibilityLabel(L("Drag to the notch to pin"))
+        EarsRow(model: model, count: model.payload.count)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(L("Drag to the notch to pin"))
     }
 }
 
 // MARK: - At rest
 
-/// The notch wearing its pins like a badge: a pin on the left, how many on the right. It pops
-/// each time one arrives.
+/// The notch wearing its pins like a badge. It pops each time one arrives.
 private struct Badge: View {
     let model: NotchDropModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 0) {
-            Image(systemName: "pin.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.92))
-                .rotationEffect(.degrees(-18))
-                .symbolEffect(.bounce, value: reduceMotion ? 0 : model.bump)
-                .padding(.trailing, 8)
-                .frame(width: NotchDropModel.earWidth, alignment: .trailing)
-            Color.clear
-                .frame(width: model.notchSize.width)
-            Text("\(model.total)")
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.primary)
-                .contentTransition(.numericText(value: Double(model.total)))
-                .padding(.leading, 8)
-                .frame(width: NotchDropModel.earWidth, alignment: .leading)
-        }
-        .animation(.spring(duration: 0.3, bounce: 0.3), value: model.total)
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(String(format: L("%d pins. Show them"), model.total))
+        EarsRow(model: model, count: model.total, bump: model.bump)
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(String(format: L("%d pins. Show them"), model.total))
     }
 }
 
-/// Clove has the notch, so Shotput's pins wait in a small glass bubble just under it.
-private struct PinsBubble: View {
+/// The pins beside Clove's ears: a dark capsule level with the notch, a pin and how many.
+private struct SideBubble: View {
     let model: NotchDropModel
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: model.openTray) {
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Palette.accent.color)
                     .rotationEffect(.degrees(-18))
                     .symbolEffect(.bounce, value: reduceMotion ? 0 : model.bump)
                 Text("\(model.total)")
-                    .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.94))
                     .contentTransition(.numericText(value: Double(model.total)))
             }
-            .foregroundStyle(.white)
-            .frame(width: NotchDropModel.bubbleSize.width, height: NotchDropModel.bubbleSize.height)
-            .background(Capsule().fill(.black.opacity(isHovered ? 0.86 : 0.78)))
-            .glassEffect(.regular, in: .capsule)
-            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+            .frame(width: NotchDropModel.sideBubbleSize.width, height: NotchDropModel.sideBubbleSize.height)
+            .background(Capsule().fill(.black))
             .scaleEffect(isHovered && !reduceMotion ? 1.06 : 1)
         }
         .buttonStyle(.plain)

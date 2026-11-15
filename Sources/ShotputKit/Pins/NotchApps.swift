@@ -62,14 +62,24 @@ enum NotchApps {
     private(set) static var companionIsOpen = false
     static let cloveDidOpen = Notification.Name("com.kshvbgde.clove.notch.didOpen")
     static let cloveDidClose = Notification.Name("com.kshvbgde.clove.notch.didClose")
+
+    /// Clove is wearing ears of its own beside the closed notch (a timer, music, a call). Shotput
+    /// then can't wear its ears too, so its pins step out into a small bubble past Clove's right
+    /// ear, the way iOS shows a second live activity beside the island.
+    private(set) static var companionShowsEars = false
+    static let cloveEarsDidShow = Notification.Name("com.kshvbgde.clove.notch.earsDidShow")
+    static let cloveEarsDidHide = Notification.Name("com.kshvbgde.clove.notch.earsDidHide")
+    /// How far Clove's ears reach past each side of the notch, shoulder included. Shared by
+    /// agreement, since a sandboxed app can't send the number across.
+    static let companionEarReach: CGFloat = 46
     private static var observers: [Any] = []
     /// Clove opened, closed, launched or quit: what the notch shows at rest may change.
     static let companionDidChange = Notification.Name("ShotputNotchCompanionDidChange")
 
     private static var companionIDs: Set<String> { Set(companions.flatMap(\.bundleIDs)) }
 
-    /// Clove is running, so the notch is its to open on hover and click. Shotput's pins then
-    /// wait in a bubble under the notch instead of in ears beside it.
+    /// Clove is running, so the notch itself is its to open on hover and click. Shotput's pins
+    /// wear ears beside it, or a bubble past Clove's own ears while it has them.
     static var companionIsRunning: Bool {
         let ids = companionIDs
         return NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier.map(ids.contains) ?? false }
@@ -95,6 +105,14 @@ enum NotchApps {
                 changed()
             }
         })
+        for (name, showing) in [(cloveEarsDidShow, true), (cloveEarsDidHide, false)] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    companionShowsEars = showing
+                    changed()
+                }
+            })
+        }
         let ids = companionIDs
         for name in [NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didLaunchApplicationNotification] {
             observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { note in
@@ -102,7 +120,10 @@ enum NotchApps {
                 let quit = name == NSWorkspace.didTerminateApplicationNotification
                 MainActor.assumeIsolated {
                     guard let id = app?.bundleIdentifier, ids.contains(id) else { return }
-                    if quit { companionIsOpen = false }
+                    if quit {
+                        companionIsOpen = false
+                        companionShowsEars = false
+                    }
                     changed()
                 }
             })

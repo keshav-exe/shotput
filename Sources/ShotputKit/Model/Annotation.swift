@@ -137,13 +137,26 @@ public struct Ink: Hashable, Codable {
 
 /// How a rectangle or ellipse is painted.
 public enum ShapeFill: String, Codable, CaseIterable {
-    case outline, solid, tinted
+    case outline, solid, tinted, striped, dotted
 
     var title: String {
         switch self {
         case .outline: L("Outline")
         case .solid: L("Fill")
         case .tinted: L("Fill and border")
+        case .striped: L("Stripes and border")
+        case .dotted: L("Dots and border")
+        }
+    }
+
+    /// The SF Symbol for the fill menu.
+    var symbol: String {
+        switch self {
+        case .outline: "square"
+        case .solid: "square.fill"
+        case .tinted: "square.inset.filled"
+        case .striped: "square.split.diagonal.fill"
+        case .dotted: "circle.grid.3x3"
         }
     }
 }

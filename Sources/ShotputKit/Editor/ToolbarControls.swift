@@ -9,6 +9,15 @@ struct StyleControls: View {
     private var style: MarkStyle { model.style }
 
     var body: some View {
+        if tool == .select {
+            // Nothing to set until a mark is selected: no empty capsule in the toolbar.
+            Color.clear.frame(width: 0, height: 0)
+        } else {
+            controls
+        }
+    }
+
+    private var controls: some View {
         HStack(spacing: 2) {
             if tool == .redact { redactMode }
             if showsColor { ColorWell(model: model) }
@@ -30,6 +39,9 @@ struct StyleControls: View {
             }
             if ![.select, .redact, .spotlight].contains(tool) { optionsMenu }
         }
+        .padding(.horizontal, 8)
+        .frame(height: 36)
+        .glassEffect(.regular, in: .capsule)
         .fixedSize()
         .animation(.snappy(duration: 0.18), value: tool)
     }
@@ -106,7 +118,7 @@ struct StyleControls: View {
         Menu {
             if tool != .spotlight {
                 Picker(L("Fill"), selection: binding(\.fill)) {
-                    ForEach(ShapeFill.allCases, id: \.self) { Text($0.title).tag($0) }
+                    ForEach(ShapeFill.allCases, id: \.self) { Label($0.title, systemImage: $0.symbol).tag($0) }
                 }
                 .pickerStyle(.inline)
             }
@@ -120,7 +132,7 @@ struct StyleControls: View {
                 .pickerStyle(.inline)
             }
         } label: {
-            (style.fill == .outline ? Icon.unfilled : style.fill == .solid ? Icon.fill : Icon.tinted).view(size: 13)
+            Image(systemName: (tool == .spotlight ? ShapeFill.outline : style.fill).symbol)
         }
         .toolbarMenu()
         .help(L("Shape style"))

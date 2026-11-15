@@ -16,12 +16,9 @@ private extension NSToolbarItem.Identifier {
     static let copy = NSToolbarItem.Identifier("copy")
     static let done = NSToolbarItem.Identifier("done")
 
-    /// Each tool is its own item, so Customize Toolbar can hide or reorder the ones you rarely use.
-    static func tool(_ tool: Tool) -> NSToolbarItem.Identifier { NSToolbarItem.Identifier("tool.\(tool.rawValue)") }
-
-    var tool: Tool? {
-        rawValue.hasPrefix("tool.") ? Tool(rawValue: String(rawValue.dropFirst(5))) : nil
-    }
+    /// The tools, as one native select-one group: the system draws the selected tool inside the
+    /// group's glass, the way segmented controls show their selection.
+    static let tools = NSToolbarItem.Identifier("tools")
 }
 
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
@@ -75,7 +72,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         window.delegate = self
         window.contentMinSize = Self.minimumContent
 
-        let toolbar = NSToolbar(identifier: "editor.markup")
+        let toolbar = NSToolbar(identifier: "editor.markup.v2")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = true
@@ -214,34 +211,32 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         if toolbar === cropToolbar { return [.crop, .cropControls, .flexibleSpace, .cancelCrop, .applyCrop] }
         // Copy text, Float, Pin, and Save sit in the bar under the image, as in most markup apps, so
         // the tools and their options fit on one row. Customize Toolbar can bring them up here.
-        return [.crop, .background, .space] + Tool.allCases.map { .tool($0) }
-            + [.style, .flexibleSpace, .copy, .done]
+        return [.crop, .background, .space, .tools, .style, .flexibleSpace, .copy, .done]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar) + [.recognizeText, .float, .pin, .save, .flexibleSpace, .space]
     }
 
-    func toolbarWillAddItem(_ notification: Notification) {
-        guard let item = notification.userInfo?["item"] as? NSToolbarItem, let tool = item.itemIdentifier.tool else { return }
-        item.style = tool == model.tool ? .prominent : .plain
-    }
-
     func toolbar(
         _ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
-        if let tool = identifier.tool {
-            let item = NSToolbarItem(itemIdentifier: identifier)
-            item.image = tool.icon.plain(label: tool.title)
-            item.label = tool.title
-            item.paletteLabel = tool.title
-            item.toolTip = "\(tool.title)  \(String(tool.key).uppercased())"
-            item.isBordered = true
-            item.target = self
-            item.action = #selector(toolPicked(_:))
-            return item
-        }
         switch identifier {
+        case .tools:
+            let group = NSToolbarItemGroup(
+                itemIdentifier: identifier,
+                images: Tool.allCases.map { $0.icon.plain(label: $0.title) },
+                selectionMode: .selectOne,
+                labels: Tool.allCases.map(\.title),
+                target: self, action: #selector(toolPicked(_:))
+            )
+            for (tool, item) in zip(Tool.allCases, group.subitems) {
+                item.toolTip = "\(tool.title)  \(String(tool.key).uppercased())"
+            }
+            group.label = L("Tools")
+            group.paletteLabel = L("Tools")
+            group.selectedIndex = Tool.allCases.firstIndex(of: model.tool) ?? 0
+            return group
         case .crop:
             let item = button(identifier, L("Crop"), .crop, #selector(toggleCrop(_:)), tip: L("Crop  C"))
             return item
@@ -313,7 +308,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         guard let window else { return }
         canvas.commitText()
         window.toolbar = cropping ? cropToolbar : markupToolbar
-        cropToolbar.items.first { $0.itemIdentifier == .crop }?.style = .prominent
         window.invalidateCursorRects(for: canvas)
         window.makeFirstResponder(canvas)
     }
@@ -340,19 +334,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { item.image = icon.plain(label: item.label) }
     }
 
-    @objc private func toolPicked(_ sender: NSToolbarItem) {
-        guard let tool = sender.itemIdentifier.tool else { return }
+    @objc private func toolPicked(_ sender: NSToolbarItemGroup) {
+        guard Tool.allCases.indices.contains(sender.selectedIndex) else { return }
+        let tool = Tool.allCases[sender.selectedIndex]
         canvas.commitText()
         model.setTool(tool)
         window?.makeFirstResponder(canvas)
     }
 
-    /// The current tool's button is filled with the accent colour.
+    /// Keeps the group's selection on the current tool, however it was picked (keys, Select after a draw).
     private func highlightTool(_ tool: Tool) {
-        for item in markupToolbar.items {
-            guard let itemTool = item.itemIdentifier.tool else { continue }
-            item.style = itemTool == tool ? .prominent : .plain
-        }
+        guard let group = markupToolbar?.items.first(where: { $0.itemIdentifier == .tools }) as? NSToolbarItemGroup,
+              let index = Tool.allCases.firstIndex(of: tool), group.selectedIndex != index else { return }
+        group.selectedIndex = index
     }
 
     // MARK: Crop

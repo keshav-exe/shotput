@@ -134,7 +134,7 @@ public final class AnnotationRenderer {
         }
     }
 
-    /// Rectangles and ellipses: outline, solid fill, or a tinted fill inside a border.
+    /// Rectangles and ellipses: outline, solid fill, or a tinted, striped or dotted fill inside a border.
     private func shape(_ path: CGPath, _ a: Annotation, _ zoom: CGFloat, _ ctx: CGContext) {
         let width = a.lineWidth
         layer(a, zoom, ctx) {
@@ -147,11 +147,16 @@ public final class AnnotationRenderer {
                 ctx.addPath(path)
                 ctx.setFillColor(a.color.cgColor)
                 ctx.fillPath()
-            case .outline, .tinted:
-                if a.style.fill == .tinted {
+            case .outline, .tinted, .striped, .dotted:
+                switch a.style.fill {
+                case .tinted:
                     ctx.addPath(path)
                     ctx.setFillColor(a.color.nsColor.withAlphaComponent(0.22).cgColor)
                     ctx.fillPath()
+                case .striped, .dotted:
+                    pattern(in: path, a, ctx)
+                default:
+                    break
                 }
                 dash(a, width, ctx)
                 ctx.addPath(path)
@@ -164,6 +169,48 @@ public final class AnnotationRenderer {
                 ctx.strokePath()
             }
         }
+    }
+
+    /// Diagonal stripes or a grid of dots in the mark's colour, clipped to its shape. The pattern
+    /// scales with the line width, so a heavier border gets a bolder fill.
+    private func pattern(in path: CGPath, _ a: Annotation, _ ctx: CGContext) {
+        let width = a.lineWidth
+        let bounds = path.boundingBoxOfPath
+        ctx.saveGState()
+        ctx.addPath(path)
+        ctx.clip()
+        ctx.setFillColor(a.color.nsColor.withAlphaComponent(0.08).cgColor)
+        ctx.fill(bounds)
+        let ink = a.color.nsColor.withAlphaComponent(0.55).cgColor
+        if a.style.fill == .striped {
+            let gap = max(7, width * 2.6)
+            ctx.setStrokeColor(ink)
+            ctx.setLineWidth(max(1.5, width * 0.6))
+            var x = bounds.minX - bounds.height
+            while x < bounds.maxX {
+                ctx.move(to: CGPoint(x: x, y: bounds.minY))
+                ctx.addLine(to: CGPoint(x: x + bounds.height, y: bounds.maxY))
+                x += gap
+            }
+            ctx.strokePath()
+        } else {
+            let gap = max(7, width * 2.4)
+            let radius = max(1.2, width * 0.45)
+            ctx.setFillColor(ink)
+            var row = 0
+            var y = bounds.minY + gap / 2
+            while y < bounds.maxY {
+                // Every other row shifts half a step, so the dots sit in a tidy diagonal weave.
+                var x = bounds.minX + gap / 2 + (row % 2 == 0 ? 0 : gap / 2)
+                while x < bounds.maxX {
+                    ctx.fillEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
+                    x += gap
+                }
+                y += gap
+                row += 1
+            }
+        }
+        ctx.restoreGState()
     }
 
     /// A tapered shaft that swells into a swept, round-cornered head.

@@ -53,7 +53,7 @@ func preview(to path: String) {
     }
 
     var marks: [Annotation] = []
-    for (i, color) in InkColor.allCases.enumerated() {
+    for (i, color) in Ink.palette.prefix(8).enumerated() {
         let x = 40 + CGFloat(i) * 88
         marks.append(Annotation(
             kind: .arrow(from: CGPoint(x: x, y: 130), to: CGPoint(x: x + 60, y: 50)),

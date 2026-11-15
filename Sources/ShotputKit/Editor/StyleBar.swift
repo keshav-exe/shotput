@@ -1,8 +1,17 @@
 import SwiftUI
 
-/// Floating colour, weight, and fill controls, with a toast slot above them.
-struct StyleBar: View {
+/// The floating bar under the image, with a toast slot above it. Undo, redo, and the actions for
+/// the finished image while marking up; edge snapping and Revert to Original while cropping.
+/// Colour, size, and the rest of a tool's style live in the toolbar.
+struct EditorBar: View {
+    struct Actions {
+        let copyText: () -> Void
+        let pin: () -> Void
+        let save: () -> Void
+    }
+
     @ObservedObject var model: EditorModel
+    let actions: Actions
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -18,106 +27,47 @@ struct StyleBar: View {
             }
 
             HStack(spacing: 12) {
-                HStack(spacing: 2) {
-                    ForEach(InkColor.allCases, id: \.self) { ink in
-                        Swatch(ink: ink, isSelected: model.color == ink) { model.setColor(ink) }
+                if model.crop != nil {
+                    Toggle(isOn: $model.snapsToEdges) {
+                        Text(L("Snap to edges")).foregroundStyle(Palette.ink.color)
                     }
-                }
-                .disabled(!model.styleTool.supportsColor)
-                .opacity(model.styleTool.supportsColor ? 1 : 0.35)
-
-                divider
-
-                HStack(spacing: 2) {
-                    ForEach(Weight.allCases, id: \.self) { weight in
-                        WeightButton(weight: weight, isSelected: model.weight == weight) { model.setWeight(weight) }
-                    }
-                }
-                .disabled(!model.styleTool.supportsWeight)
-                .opacity(model.styleTool.supportsWeight ? 1 : 0.35)
-
-                divider
-
-                BarButton(
-                    icon: model.filled ? .fill : .unfilled,
-                    label: model.styleTool == .redact ? L("Solid block") : L("Fill"),
-                    isSelected: model.filled
-                ) { model.setFilled(!model.filled) }
-                    .disabled(!model.styleTool.supportsFill)
-                    .opacity(model.styleTool.supportsFill ? 1 : 0.35)
-
-                divider
-
-                HStack(spacing: 2) {
+                    .toggleStyle(.checkbox)
+                    .help(L("Hold ⌘ while dragging to switch snapping for that drag"))
+                    Text(L("Hold ⌘ to switch"))
+                        .font(.caption)
+                        .foregroundStyle(Palette.ink.color.opacity(0.55))
+                    divider
+                    Button(L("Revert to Original")) { model.revertToOriginal() }
+                        .buttonStyle(.borderless)
+                        .disabled(!model.canRevert)
+                } else {
                     BarButton(icon: .undo, label: L("Undo"), isSelected: false) { model.undo() }
                         .disabled(!model.canUndo)
                         .opacity(model.canUndo ? 1 : 0.35)
                     BarButton(icon: .redo, label: L("Redo"), isSelected: false) { model.redo() }
                         .disabled(!model.canRedo)
                         .opacity(model.canRedo ? 1 : 0.35)
+                    divider
+                    BarButton(icon: .readText, label: L("Copy text: reads the text in this screenshot and copies it"), isSelected: false, action: actions.copyText)
+                    BarButton(icon: .pin, label: L("Pin to the menu bar"), isSelected: false, action: actions.pin)
+                    BarButton(icon: .save, label: L("Save  ⌘S"), isSelected: false, action: actions.save)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
+            .fixedSize()
+            .frame(minHeight: 42)
             .glassEffect(.regular, in: .capsule)
         }
         .padding(Metrics.spacingS)
         .animation(.snappy(duration: 0.25), value: model.toast)
-        .animation(.snappy(duration: 0.18), value: model.color)
-        .animation(.snappy(duration: 0.18), value: model.weight)
+        .animation(.snappy(duration: 0.2), value: model.crop == nil)
     }
 
     private var divider: some View {
         Rectangle()
             .fill(Palette.ink.color.opacity(0.12))
             .frame(width: 1, height: 18)
-    }
-}
-
-private struct Swatch: View {
-    let ink: InkColor
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .strokeBorder(Palette.ink.color, lineWidth: 2)
-                    .opacity(isSelected ? 1 : 0)
-                Circle()
-                    .fill(Color(nsColor: ink.nsColor))
-                    .overlay(Circle().strokeBorder(Palette.ink.color.opacity(0.18), lineWidth: 0.5))
-                    .padding(isSelected ? 4 : 3)
-            }
-            .frame(width: 28, height: 28)
-            .contentShape(Circle())
-        }
-        .buttonStyle(CircleButtonStyle())
-        .help("\(ink.name) (\(ink.rawValue + 1))")
-        .accessibilityLabel(ink.name)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-private struct WeightButton: View {
-    let weight: Weight
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Capsule()
-                .fill(Palette.ink.color)
-                .frame(width: 14, height: [2, 3.5, 5.5, 8][weight.rawValue])
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(Palette.ink.color.opacity(isSelected ? 0.12 : 0)))
-                .contentShape(Circle())
-        }
-        .buttonStyle(CircleButtonStyle())
-        .help(weight.name)
-        .accessibilityLabel("\(weight.name) weight")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -141,7 +91,7 @@ private struct BarButton: View {
     }
 }
 
-/// The style bar's hover and press, matching the toolbar's buttons: a faint circle on hover, a
+/// The bar's hover and press, matching the toolbar's buttons: a faint circle on hover, a
 /// firmer one and a slight press while held.
 private struct CircleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { CircleButton(configuration: configuration) }

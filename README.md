@@ -97,7 +97,18 @@ then appears in the screen corner nearest your pointer that does not cover what 
 
 - Click it to annotate.
 - Drag it into any app as a file, or up to the notch to pin it.
+- Float it: the screenshot stays on screen above every window until you close it.
 - Ignore it and it leaves after a few seconds. It never takes focus.
+
+### Floating screenshots
+
+Float a screenshot from its preview, from the editor's bar under the image, or with Float Last
+Capture in the menu bar menu. It opens where it was taken, at its real size, above every window.
+Drag it to move it: it snaps to the screen's edges and to other floats, so two can sit side by
+side (hold ⌘ to place it freely). Drag an edge or corner, scroll, or pinch to resize it; the shape
+stays the same. ⌥-scroll fades it. ⌥-drag drops it into another app as a file, and a double click
+opens it in the editor. Esc closes it, ⌘C copies and ⌘S saves. Right-click for opacity, actual
+size, its shadow, locking its position and size, and closing them all.
 
 Settings can open the editor every time instead, or skip the preview and copy quietly.
 
@@ -144,12 +155,14 @@ clipboard is put back after the pin shortcut copies.
 Pinned files are copied into Shotput's container (an instant clone on APFS), so they stay put
 if the original moves. Dropping the same file again moves it to the front.
 
-The notch wears your pins like a badge: ears with a pin and how many, which pop as each one
-arrives. Hover the notch to peek at the tray and click to open it, right there in the notch; Esc
-or a click anywhere else closes it. The menu bar icon opens the same tray, and a click on the bare
-notch does too. With Clove running, the notch is Clove's to open, so the pins wait in a small
-bubble under it: click that and Clove steps aside while the tray opens. In menu bar mode the tray
-drops out under the icon instead. The tray holds the last 15 pins in a strip that scrolls
+The notch wears your pins like a badge: ears either side of it, Shotput's icon on the left and a
+pin with how many on the right, which pops as each one arrives. Hover the ears to peek at the
+tray and click to open it, right there in the notch; Esc or a click anywhere else closes it. The
+menu bar icon opens the same tray, and a click on the bare notch does too. With Clove running, the
+notch itself is Clove's to open, so only the ears answer: click them and Clove steps aside while
+the tray opens. While Clove wears ears of its own, the pins step out into a small bubble beside
+them, the way iOS shows a second live activity. In menu bar mode the tray drops out under the icon
+instead, and the menu bar icon stays on while pins live there. The tray holds the last 15 pins in a strip that scrolls
 sideways. Click a pin to copy it, Option-click to annotate a picture or open any other file, or
 drag it into any app.
 
@@ -161,28 +174,37 @@ Right-click the icon for captures, Settings, Check for Updates, and Quit.
 
 | Tool | Key | Notes |
 |---|---|---|
-| Arrow | A | Shift snaps to 45° steps. Drag the middle handle to curve it. |
+| Select | V | Click a mark to move, reshape or restyle it. |
+| Rectangle | R | Shift for a square. Outline, fill, tinted, stripes or dots, with square to very round corners. |
+| Filled rectangle | F | |
+| Ellipse | O | Shift for a circle. The same fills as rectangles. |
 | Line | L | Drag the middle handle to curve it, double click it to straighten. |
-| Rectangle | R | Shift for a square. Fill tints the inside. |
-| Ellipse | O | Shift for a circle. |
-| Text | T | Return finishes, Shift Return adds a line. Double click to edit. |
-| Step number | N | Counts up on each click. |
+| Arrow | A | Shift snaps to 45° steps. Tapered, even or double-headed, straight or curved. |
+| Text | T | Return finishes, Shift Return adds a line. Plain, outlined, or on a label. |
+| Redact | B | Pixelate, Blur (secure), Blur (smooth) or Black out, with a strength. |
+| Spotlight | S | Dims everything but the areas you mark. |
+| Step number | N | Counts up on each click. Filled, ring or square. |
 | Pen | P | Sketch a line, arrow, rectangle, or circle and it becomes one. ⌘Z keeps the sketch. |
 | Highlighter | H | |
-| Redact | B | Mosaic by default. Fill makes it a solid block. |
-| Crop | C | |
 
-Keys 1 to 8 pick a colour. Every mark has a thin halo and soft shadow, so it stays readable on
-any background, including one of its own colour.
+The tools sit in one row along the top, followed by the chosen tool's colour, size and options.
+Select a mark and they show, and change, that mark's style. Keys 1 to 8 pick a colour. Every mark
+has a thin halo and soft shadow, so it stays readable on any background, including one of its own
+colour.
 
 Drag any mark to move it, drag its handles to reshape it, and use the arrow keys to nudge.
 Delete removes it.
+
+**C** crops. Pick freeform, the original ratio, square or a common ratio, rotate or flip, or type
+an exact size in pixels. The crop snaps to edges in the image (hold ⌘ to switch that for one
+drag), and Revert to Original undoes every crop.
 
 The toolbar's Background button puts the screenshot on your wallpaper or a colour, with padding,
 a soft shadow, and rounded corners. Marks stay where you put them. None takes it off again.
 
 **Return** copies the result and closes the editor. ⌘C copies and keeps it open, and ⌘S saves.
-The toolbar can also copy the text in the screenshot, read on your Mac.
+The bar under the image can also copy the text in the screenshot (read on your Mac), float it,
+or pin it.
 
 ## Settings
 
@@ -210,7 +232,10 @@ The toolbar can also copy the text in the screenshot, read on your Mac.
   capture bar.
 - Links can only start captures that put a selection on screen. A silent full-screen capture is
   shortcut only, so another app cannot use Shotput to read your screen.
-- Idle, it uses no CPU and about 15 MB of memory. Hotkeys are event driven and nothing polls.
+- Idle, it uses no CPU and about 20 MB of memory. Hotkeys are event driven and nothing polls.
+  Pointer moves far from the notch are ignored at once, and a drag is only watched until it's
+  clear it carries nothing.
+- Copies made for dragging and pinning are cleared when Shotput quits.
 - One dependency, Sparkle, for updates. Everything else is Swift, AppKit, and ScreenCaptureKit.
 
 ## Development

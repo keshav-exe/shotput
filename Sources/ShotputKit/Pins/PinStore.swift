@@ -28,6 +28,41 @@ final class PinStore {
 
         /// Opens in the editor: a capture, or a dropped picture.
         var isImage: Bool { isCapture || type.conforms(to: .image) }
+
+        /// What sort of thing it is, for the tray's filters.
+        var kind: Kind {
+            if isCapture { return .screenshots }
+            let type = type
+            if type.conforms(to: .image) { return .images }
+            if type.conforms(to: .audiovisualContent) || type.conforms(to: .audio) { return .media }
+            let documents: [UTType] = [.pdf, .text, .presentation, .spreadsheet, .compositeContent, .sourceCode, .rtf, .epub]
+            if documents.contains(where: type.conforms(to:)) { return .documents }
+            return .other
+        }
+
+        enum Kind: CaseIterable {
+            case screenshots, images, documents, media, other
+
+            var title: String {
+                switch self {
+                case .screenshots: L("Screenshots")
+                case .images: L("Images")
+                case .documents: L("Documents")
+                case .media: L("Audio and video")
+                case .other: L("Other files")
+                }
+            }
+
+            var symbol: String {
+                switch self {
+                case .screenshots: "camera.viewfinder"
+                case .images: "photo"
+                case .documents: "doc.text"
+                case .media: "play.rectangle"
+                case .other: "doc"
+                }
+            }
+        }
     }
 
     static let shared = PinStore()
@@ -228,6 +263,19 @@ final class PinStore {
         } else {
             NSWorkspace.shared.open(url(for: pin))
         }
+    }
+
+    /// Moves pins to sit just before `target`, or at the end when it's nil, keeping their own
+    /// order. The new order is kept.
+    func move(_ ids: [UUID], before target: UUID?) {
+        let moving = pins.filter { ids.contains($0.id) }
+        guard !moving.isEmpty else { return }
+        var rest = pins.filter { !ids.contains($0.id) }
+        let index = target.flatMap { target in rest.firstIndex { $0.id == target } } ?? rest.count
+        rest.insert(contentsOf: moving, at: index)
+        guard rest.map(\.id) != pins.map(\.id) else { return }
+        pins = rest
+        save()
     }
 
     private func save() {

@@ -9,7 +9,10 @@ final class PinCell: NSView, NSDraggingSource {
     var onClick: ((NSEvent.ModifierFlags) -> Void)?
     /// The pins a drag from this cell carries: the picked ones when this is one of them.
     var dragPins: (() -> [PinStore.Pin])?
-    var onDragEnded: (() -> Void)?
+    /// The drag finished; `reordered` when it was dropped back in the tray to move pins.
+    var onDragEnded: ((_ reordered: Bool) -> Void)?
+    /// Moves this pin one place left or right, for VoiceOver.
+    var onNudge: ((_ step: Int) -> Void)?
 
     var isSelected = false {
         didSet { if isSelected != oldValue { updateChrome() } }
@@ -77,6 +80,10 @@ final class PinCell: NSView, NSDraggingSource {
                 : L("\nClick to copy, ⌥-click to open, ⌘-click to pick several, or drag"))
         setAccessibilityRole(.button)
         setAccessibilityLabel(pin.name.map { String(format: L("Pinned file %@, %@"), $0, when) } ?? String(format: L("Pinned screenshot, %@"), when))
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: L("Move left")) { [weak self] in self?.onNudge?(-1); return true },
+            NSAccessibilityCustomAction(name: L("Move right")) { [weak self] in self?.onNudge?(1); return true },
+        ])
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         updateChrome()
     }
@@ -140,7 +147,11 @@ final class PinCell: NSView, NSDraggingSource {
         let pins = dragPins?() ?? [pin]
         // A small fanned stack under the pointer, one image per pin.
         let items = pins.enumerated().map { index, pin -> NSDraggingItem in
-            let item = NSDraggingItem(pasteboardWriter: PinStore.shared.url(for: pin) as NSURL)
+            // The file for other apps, and the pin's id for reordering in the tray.
+            let entry = NSPasteboardItem()
+            entry.setString(PinStore.shared.url(for: pin).absoluteString, forType: .fileURL)
+            entry.setString(pin.id.uuidString, forType: .shotputPin)
+            let item = NSDraggingItem(pasteboardWriter: entry)
             let offset = CGFloat(min(index, 4)) * 6
             let image = PinStore.shared.thumbnail(for: pin).map { NSImage(cgImage: $0, size: .zero) } ?? PinStore.shared.icon(for: pin)
             item.setDraggingFrame(bounds.offsetBy(dx: offset, dy: -offset), contents: image)
@@ -161,7 +172,17 @@ final class PinCell: NSView, NSDraggingSource {
         PinStore.shared.remove(pin)
     }
 
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+    /// Other apps get a copy; within the tray a drop moves the pin.
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .withinApplication ? [.copy, .move] : .copy
+    }
 
-    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { onDragEnded?() }
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        onDragEnded?(operation == .move)
+    }
+}
+
+extension NSPasteboard.PasteboardType {
+    /// A pin being dragged within Shotput, by its id.
+    static let shotputPin = NSPasteboard.PasteboardType("app.shotput.pin")
 }

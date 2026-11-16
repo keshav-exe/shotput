@@ -166,6 +166,11 @@ instead, and the menu bar icon stays on while pins live there. The tray holds th
 sideways. Click a pin to copy it, Option-click to annotate a picture or open any other file, or
 drag it into any app.
 
+With more than one kind of thing pinned, a row under the title filters the strip: screenshots,
+images, documents, audio and video, or other files, each with how many. Drag a pin sideways
+within the tray to reorder it; the others slide apart to show where it lands, and the order is
+kept. Dragged out of the tray, it goes to another app as before.
+
 To work with several, ⌘-click them (⇧-click picks a run), or press Select. Then Copy puts them
 all on the clipboard as separate items, dragging one drags them all, and Unpin removes them.
 Right-click the icon for captures, Settings, Check for Updates, and Quit.
@@ -199,13 +204,15 @@ Delete removes it.
 an exact size in pixels. The crop snaps to edges in the image (hold ⌘ to switch that for one
 drag), and Revert to Original undoes every crop.
 
-The toolbar's Background button sets the screenshot on a gradient, a colour, transparency, your
-desktop as it is right now, one of the macOS desktop pictures, or a picture you add (kept as a
-bookmark, never copied). Gradients are drawn from a few colours each and pictures come from your
-Mac, so Shotput ships no background images and never downloads any. Then set the padding, the
-corner radius, the shadow's depth, a ratio such as 1:1 or 16:9 with the screenshot's position in
-it, and blur for pictures. Marks stay where you put them, the last settings are kept for next
-time, and None takes it all off again.
+The toolbar's Background button opens a sidebar laid out like CleanShot X's, in Liquid Glass:
+gradients, wallpapers (your desktop as it is right now, the macOS desktop pictures, and pictures
+you add, kept as bookmarks and never copied), the same wallpapers blurred, and plain colours with
+transparency and a custom colour. Gradients are drawn from a few colours each and pictures come
+from your Mac, so Shotput ships no background images and never downloads any. Below them: padding;
+inset, a band of the screenshot's own edge colour, with Auto-balance to even out uneven margins;
+shadow; corner radius; and a ratio such as 1:1 or 16:9 with the screenshot's alignment in it.
+Presets keep a look to use again, and Apply Previous Settings brings back the last one. Marks stay
+where you put them, and None takes it all off again.
 
 **Return** copies the result and closes the editor. ⌘C copies and keeps it open, and ⌘S saves.
 The bar under the image can also copy the text in the screenshot (read on your Mac), float it,

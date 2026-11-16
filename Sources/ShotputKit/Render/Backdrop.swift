@@ -80,6 +80,10 @@ enum Backdrop {
         var fill: Fill
         /// Points of backdrop around the image, at the least.
         var padding: CGFloat
+        /// Points of the screenshot's own edge colour added around it, inside the rounded corners.
+        var inset: CGFloat = 0
+        /// Trims uneven margins of that edge colour, so the content sits evenly inside the inset.
+        var autoBalance = false
         /// Points. Applies to area captures; window captures keep their own corners.
         var cornerRadius: CGFloat = 10
         /// 0 for none to 1 for a deep, soft shadow.
@@ -109,11 +113,112 @@ enum Backdrop {
         return (canvas, CGRect(origin: origin, size: imageSize))
     }
 
-    /// Where the image's top-left corner lands, in points, so marks can move with it.
-    static func imageOrigin(imageSize: CGSize, scale: CGFloat, style: Style?) -> CGPoint {
+    /// Where the original image's top-left pixel lands on the canvas, in points, so marks can
+    /// move with it. Inset and auto-balance move it within the framed screenshot too.
+    static func imageOrigin(of image: CGImage, scale: CGFloat, style: Style?) -> CGPoint {
         guard let style else { return .zero }
-        let origin = layout(imageSize: imageSize, scale: scale, style: style).frame.origin
-        return CGPoint(x: origin.x / scale, y: origin.y / scale)
+        let prepared = prepare(image, scale: scale, style: style)
+        let frame = layout(imageSize: CGSize(width: prepared.image.width, height: prepared.image.height), scale: scale, style: style).frame
+        return CGPoint(x: (frame.minX + prepared.offset.x) / scale, y: (frame.minY + prepared.offset.y) / scale)
+    }
+
+    // MARK: Inset
+
+    /// The screenshot as it will sit on the backdrop: trimmed to its content when balancing, and
+    /// grown by the inset in its own edge colour. `offset` is where the original's top-left pixel
+    /// ends up, in pixels from the top left. Window captures, with their transparent corners and
+    /// shadow, are left as they are.
+    static func prepare(_ image: CGImage, scale: CGFloat, style: Style) -> (image: CGImage, offset: CGPoint) {
+        guard style.inset > 0 || style.autoBalance, hasOpaqueCorner(image), let edge = edgeColor(of: image) else {
+            return (image, .zero)
+        }
+        let full = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let content = style.autoBalance ? contentBounds(of: image, edge: edge) ?? full : full
+        let inset = Int((style.inset * scale).rounded())
+        let width = Int(content.width) + inset * 2, height = Int(content.height) + inset * 2
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ), let cropped = image.cropping(to: content) else { return (image, .zero) }
+        context.setFillColor(edge)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.draw(cropped, in: CGRect(x: inset, y: inset, width: Int(content.width), height: Int(content.height)))
+        guard let result = context.makeImage() else { return (image, .zero) }
+        return (result, CGPoint(x: CGFloat(inset) - content.minX, y: CGFloat(inset) - content.minY))
+    }
+
+    /// The colour most of the image's outermost pixels share, or nil when the border is busy.
+    private static func edgeColor(of image: CGImage) -> CGColor? {
+        guard let pixels = Pixels(image) else { return nil }
+        var counts: [UInt32: Int] = [:]
+        let step = max(1, (pixels.width + pixels.height) / 400)
+        var total = 0
+        for x in stride(from: 0, to: pixels.width, by: step) {
+            for y in [0, pixels.height - 1] { counts[pixels.key(x, y), default: 0] += 1; total += 1 }
+        }
+        for y in stride(from: 0, to: pixels.height, by: step) {
+            for x in [0, pixels.width - 1] { counts[pixels.key(x, y), default: 0] += 1; total += 1 }
+        }
+        guard let (key, count) = counts.max(by: { $0.value < $1.value }), Double(count) / Double(max(total, 1)) > 0.45 else { return nil }
+        return CGColor(srgbRed: CGFloat(key >> 24 & 0xFF) / 255, green: CGFloat(key >> 16 & 0xFF) / 255, blue: CGFloat(key >> 8 & 0xFF) / 255, alpha: 1)
+    }
+
+    private static var contentCache: (key: ObjectIdentifier, bounds: CGRect?)?
+
+    /// The smallest rectangle holding everything that isn't the edge colour, in pixels from the top left.
+    private static func contentBounds(of image: CGImage, edge: CGColor) -> CGRect? {
+        if let contentCache, contentCache.key == ObjectIdentifier(image) { return contentCache.bounds }
+        guard let pixels = Pixels(image), let c = edge.components, c.count >= 3 else { return nil }
+        let target = (UInt8(c[0] * 255), UInt8(c[1] * 255), UInt8(c[2] * 255))
+        func differs(_ x: Int, _ y: Int) -> Bool {
+            let p = pixels.rgb(x, y)
+            return abs(Int(p.0) - Int(target.0)) + abs(Int(p.1) - Int(target.1)) + abs(Int(p.2) - Int(target.2)) > 24
+        }
+        var minX = pixels.width, minY = pixels.height, maxX = -1, maxY = -1
+        for y in 0 ..< pixels.height {
+            for x in 0 ..< pixels.width where differs(x, y) {
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        let bounds = maxX < minX ? nil : CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+        contentCache = (ObjectIdentifier(image), bounds)
+        return bounds
+    }
+
+    /// The image's pixels as 8-bit sRGB, top row first.
+    private struct Pixels {
+        let width: Int, height: Int
+        private let data: [UInt8]
+
+        init?(_ image: CGImage) {
+            let w = image.width, h = image.height
+            guard w > 0, h > 0 else { return nil }
+            var buffer = [UInt8](repeating: 0, count: w * h * 4)
+            let drawn = buffer.withUnsafeMutableBytes { bytes -> Bool in
+                guard let context = CGContext(
+                    data: bytes.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                    space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ) else { return false }
+                context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+                return true
+            }
+            guard drawn else { return nil }
+            width = w
+            height = h
+            data = buffer
+        }
+
+        func rgb(_ x: Int, _ y: Int) -> (UInt8, UInt8, UInt8) {
+            let i = (y * width + x) * 4
+            return (data[i], data[i + 1], data[i + 2])
+        }
+
+        /// The pixel's colour, quantised a little so near-identical shades count together.
+        func key(_ x: Int, _ y: Int) -> UInt32 {
+            let p = rgb(x, y)
+            return UInt32(p.0 & 0xFC) << 24 | UInt32(p.1 & 0xFC) << 16 | UInt32(p.2 & 0xFC) << 8
+        }
     }
 
     // MARK: Drawing
@@ -121,7 +226,8 @@ enum Backdrop {
     /// - Parameters:
     ///   - picture: The wallpaper or picture, for those fills. Without it they fall back to a neutral colour.
     ///   - addsShadow: False when the image already carries the system's window shadow.
-    static func compose(_ image: CGImage, scale: CGFloat, style: Style, wallpaper picture: CGImage?, addsShadow: Bool = true) -> CGImage {
+    static func compose(_ original: CGImage, scale: CGFloat, style: Style, wallpaper picture: CGImage?, addsShadow: Bool = true) -> CGImage {
+        let image = prepare(original, scale: scale, style: style).image
         let size = CGSize(width: image.width, height: image.height)
         let (canvasSize, topLeftFrame) = layout(imageSize: size, scale: scale, style: style)
         let width = Int(canvasSize.width), height = Int(canvasSize.height)
@@ -129,9 +235,10 @@ enum Backdrop {
         guard let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
             space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return image }
+        ) else { return original }
         let canvas = CGRect(x: 0, y: 0, width: width, height: height)
         context.interpolationQuality = .high
+        guard context.width > 0 else { return original }
 
         switch style.fill {
         case .wallpaper, .picture:
@@ -183,7 +290,7 @@ enum Backdrop {
         }
         context.draw(image, in: frame)
         context.restoreGState()
-        return context.makeImage() ?? image
+        return context.makeImage() ?? original
     }
 
     /// The gradient across the whole canvas at its angle, with a faint grain so wide, smooth
@@ -316,15 +423,17 @@ extension Backdrop.Gradient {
         .init(colors: [0xF7971E, 0xFFD200]),
         .init(colors: [0xFFDEE9, 0xB5FFFC]),
         .init(colors: [0xFDFBFB, 0xEBEDEE]),
+        .init(colors: [0xFC5C7D, 0x6A82FB]),
+        .init(colors: [0x00C9FF, 0x92FE9D]),
         .init(colors: [0x0F2027, 0x203A43, 0x2C5364]),
         .init(colors: [0x232526, 0x414345]),
     ]
 }
 
 extension Backdrop {
-    /// Plain colours, light to dark and round the wheel.
+    /// Plain colours in two rows: strong ones, then the same hues soft, each led by a neutral.
     static let colorPresets: [UInt] = [
-        0xFFFFFF, 0xF2F2F7, 0xC7C7CC, 0x8E8E93, 0x3A3A3C, 0x1C1C1E,
-        0xFF3B30, 0xFF9500, 0xFFCC00, 0x34C759, 0x00C7BE, 0x007AFF, 0x5856D6, 0xAF52DE, 0xFF2D55,
+        0x000000, 0xFFFFFF, 0xFF3B30, 0xFF9500, 0xFFB800, 0x28A745, 0x1C7CEB, 0x8E3FF0,
+        0x3A3A3C, 0xE5E5EA, 0xFFB3AE, 0xFFC680, 0xFFE38A, 0xA8E6B8, 0xA9D2FF, 0xD5BEFF,
     ]
 }

@@ -10,7 +10,8 @@ private extension NSToolbarItem.Identifier {
     static let cancelCrop = NSToolbarItem.Identifier("cancelCrop")
     static let applyCrop = NSToolbarItem.Identifier("applyCrop")
     static let recognizeText = NSToolbarItem.Identifier("recognizeText")
-    static let background = NSToolbarItem.Identifier("background")
+    /// Crop and Background, as one native group: Background stays selected while its sidebar is open.
+    static let canvasTools = NSToolbarItem.Identifier("canvasTools")
     static let save = NSToolbarItem.Identifier("save")
     static let float = NSToolbarItem.Identifier("float")
     static let copy = NSToolbarItem.Identifier("copy")
@@ -131,12 +132,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         bar.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(bar)
 
+        let canvasLeading = scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor)
+        self.canvasLeading = canvasLeading
         NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            canvasLeading,
             scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: content.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            bar.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            bar.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
             bar.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Metrics.spacingS),
         ])
     }
@@ -148,6 +151,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     func present() {
         guard let window else { return }
         layOut()
+        // Left open last time: it opens with the editor.
+        if isSidebarOpen {
+            isSidebarOpen = false
+            setSidebar(true, animated: false)
+        }
         AppPresence.shared.windowDidOpen()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -211,7 +219,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         if toolbar === cropToolbar { return [.crop, .cropControls, .flexibleSpace, .cancelCrop, .applyCrop] }
         // Copy text, Float, Pin, and Save sit in the bar under the image, as in most markup apps, so
         // the tools and their options fit on one row. Customize Toolbar can bring them up here.
-        return [.crop, .background, .space, .tools, .style, .flexibleSpace, .copy, .done]
+        return [.canvasTools, .space, .tools, .style, .flexibleSpace, .copy, .done]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -261,10 +269,21 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             item.target = self
             item.action = #selector(applyCrop(_:))
             return item
-        case .background:
-            let item = button(identifier, L("Background"), .background, #selector(showBackground(_:)),
-                              tip: L("Background"))
-            return item
+        case .canvasTools:
+            let group = NSToolbarItemGroup(
+                itemIdentifier: identifier,
+                images: [Icon.crop.plain(label: L("Crop")), Icon.background.plain(label: L("Background"))],
+                selectionMode: .selectAny,
+                labels: [L("Crop"), L("Background")],
+                target: self, action: #selector(canvasToolPicked(_:))
+            )
+            group.subitems[0].toolTip = L("Crop  C")
+            group.subitems[1].toolTip = L("Background")
+            group.label = L("Crop and Background")
+            group.paletteLabel = L("Crop and Background")
+            group.setSelected(isSidebarOpen, at: 1)
+            canvasGroup = group
+            return group
         case .recognizeText:
             return button(identifier, L("Copy text"), .readText, #selector(copyRecognizedText(_:)),
                           tip: L("Copy text: reads the text in this screenshot and copies it"))
@@ -307,6 +326,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private func showCropToolbar(_ cropping: Bool) {
         guard let window else { return }
         canvas.commitText()
+        // Cropping takes the whole window; the sidebar steps aside for it.
+        if cropping, isSidebarOpen { setSidebar(false) }
         window.toolbar = cropping ? cropToolbar : markupToolbar
         window.invalidateCursorRects(for: canvas)
         window.makeFirstResponder(canvas)
@@ -440,22 +461,92 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     // MARK: Background
 
-    @objc func showBackground(_ sender: Any?) {
-        guard let item = (sender as? NSToolbarItem) ?? actionItems[.background]?.item else { return }
-        backdropControls.sync(model.backdrop?.style)
-        backdropControls.hasOwnCorners = !Backdrop.hasOpaqueCorner(model.backdrop?.plain ?? model.base)
-        let popover = NSPopover()
-        // Stays open while you try fills and drag sliders; a click on the screenshot closes it.
-        popover.behavior = .transient
-        let picker = BackdropPicker(controls: backdropControls) { [weak self, weak popover] in
-            popover?.close()
-            self?.addPictures()
+    /// Crop was clicked, or Background toggled.
+    @objc private func canvasToolPicked(_ sender: NSToolbarItemGroup) {
+        if sender.isSelected(at: 0) {
+            // Crop is a mode, not a state the button keeps.
+            sender.setSelected(false, at: 0)
+            toggleCrop(nil)
+            return
         }
-        let host = NSHostingController(rootView: picker)
-        host.sizingOptions = .preferredContentSize
-        popover.contentViewController = host
-        popover.show(relativeTo: item)
-        loadDesktopThumbnail()
+        setSidebar(sender.isSelected(at: 1))
+    }
+
+    @objc func showBackground(_ sender: Any?) { setSidebar(!isSidebarOpen) }
+
+    private var isSidebarOpen = UserDefaults.standard.bool(forKey: "editor.backdrop.sidebar")
+    private weak var canvasGroup: NSToolbarItemGroup?
+    private var sidebarHost: NSView?
+    private var sidebarLeading: NSLayoutConstraint?
+    private var canvasLeading: NSLayoutConstraint?
+    /// How much opening the sidebar widened the window, so closing it can give that back.
+    private var widenedBy: CGFloat = 0
+    private static let sidebarGap: CGFloat = 10
+
+    private var sidebarSpace: CGFloat { BackdropSidebar.width + Self.sidebarGap * 2 }
+
+    /// Opens or closes the Background sidebar. Opening widens the window when the screen has room,
+    /// so the screenshot keeps its size; the canvas recentres in what's left.
+    private func setSidebar(_ open: Bool, animated: Bool = true) {
+        guard let window else { return }
+        canvasGroup?.setSelected(open, at: 1)
+        let host = sidebarHost ?? makeSidebar(in: window)
+        if open {
+            backdropControls.sync(model.backdrop?.style)
+            backdropControls.hasOwnCorners = !Backdrop.hasOpaqueCorner(model.backdrop?.plain ?? model.base)
+            loadDesktopThumbnail()
+        }
+        guard open != isSidebarOpen || !animated else { return }
+        isSidebarOpen = open
+        UserDefaults.standard.set(open, forKey: "editor.backdrop.sidebar")
+
+        var frame = window.frame
+        if open, let visible = window.screen?.visibleFrame, !window.styleMask.contains(.fullScreen) {
+            let grow = min(sidebarSpace, max(0, visible.width - frame.width))
+            frame.size.width += grow
+            frame.origin.x = min(max(frame.minX - grow, visible.minX), visible.maxX - frame.width)
+            widenedBy = grow
+        } else if !open, widenedBy > 0 {
+            frame.size.width -= widenedBy
+            frame.origin.x += widenedBy
+            widenedBy = 0
+        }
+
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = animated && !reduceMotion ? 0.32 : 0
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
+            context.allowsImplicitAnimation = true
+            if frame != window.frame { window.animator().setFrame(frame, display: true) }
+            sidebarLeading?.animator().constant = open ? Self.sidebarGap : -BackdropSidebar.width
+            canvasLeading?.animator().constant = open ? sidebarSpace - Self.sidebarGap : 0
+            host.animator().alphaValue = open ? 1 : 0
+            window.contentView?.layoutSubtreeIfNeeded()
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            if self.fitsWindow { self.zoomToFit() }
+        })
+    }
+
+    private func makeSidebar(in window: NSWindow) -> NSView {
+        let sidebar = BackdropSidebar(controls: backdropControls) { [weak self] in self?.addPictures() }
+            .clipShape(.rect(cornerRadius: 22, style: .continuous))
+            .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
+        let host = NSHostingView(rootView: sidebar)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        host.alphaValue = 0
+        guard let content = window.contentView else { return host }
+        content.addSubview(host)
+        let leading = host.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: -BackdropSidebar.width)
+        NSLayoutConstraint.activate([
+            leading,
+            host.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.sidebarGap),
+            host.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.sidebarGap),
+            host.widthAnchor.constraint(equalToConstant: BackdropSidebar.width),
+        ])
+        sidebarLeading = leading
+        sidebarHost = host
+        return host
     }
 
     private func addPictures() {

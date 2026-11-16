@@ -131,6 +131,17 @@ func settingsHarness(to path: String) {
     let sharp = Backdrop.compose(plain, scale: 2, style: Backdrop.Style(fill: .clear, padding: 20, cornerRadius: 0, shadow: 0), wallpaper: nil)
     expect(sample(sharp, x: 41, y: 41)[3] > 240, "a zero radius keeps square corners")
 
+    // Inset and auto-balance: content set off-centre on white comes out evenly framed.
+    let lopsided = bitmap(width: 120, height: 80) { ctx in
+        ctx.setFillColor(rgb(0xFFFFFF)); ctx.fill(CGRect(x: 0, y: 0, width: 120, height: 80))
+        ctx.setFillColor(rgb(0x1F6FE5)); ctx.fill(CGRect(x: 10, y: 40, width: 40, height: 20))
+    }
+    let balanced = Backdrop.prepare(lopsided, scale: 1, style: Backdrop.Style(fill: .clear, padding: 0, inset: 12, autoBalance: true))
+    expect(balanced.image.width == 40 + 24 && balanced.image.height == 20 + 24, "auto-balance trims to the content and insets it evenly")
+    expect(sample(balanced.image, x: 12, y: 12)[2] > 200 && sample(balanced.image, x: 11, y: 11)[0] > 240, "the content sits exactly inside the inset")
+    let inset = Backdrop.prepare(lopsided, scale: 2, style: Backdrop.Style(fill: .clear, padding: 0, inset: 5))
+    expect(inset.image.width == 140 && inset.offset == CGPoint(x: 10, y: 10), "inset adds the edge colour all round, at the capture's scale")
+
     // Highlighter ink multiplies: dark text under it stays dark, white under it turns the ink's colour.
     let page = bitmap(width: 40, height: 20) { ctx in
         ctx.setFillColor(rgb(0xFFFFFF)); ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 20))

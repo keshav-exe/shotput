@@ -211,7 +211,8 @@ struct StyleControls: View {
 
     private var optionsMenu: some View {
         Menu {
-            Toggle(L("Shadow"), isOn: binding(\.shadow))
+            // Highlighter ink sinks into the image; a shadow would lift it off.
+            if tool != .highlight { Toggle(L("Shadow"), isOn: binding(\.shadow)) }
             if [.rectangle, .ellipse, .line, .pen].contains(tool) || (tool == .arrow && style.arrow != .tapered) {
                 Toggle(L("Dashed"), isOn: binding(\.dashed))
             }

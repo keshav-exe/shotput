@@ -185,7 +185,7 @@ Right-click the icon for captures, Settings, Check for Updates, and Quit.
 | Spotlight | S | Dims everything but the areas you mark. |
 | Step number | N | Counts up on each click. Filled, ring or square. |
 | Pen | P | Sketch a line, arrow, rectangle, or circle and it becomes one. ⌘Z keeps the sketch. |
-| Highlighter | H | |
+| Highlighter | H | A translucent marker that multiplies into the image, so text under it stays sharp. Drag across a line of text and it settles into a straight, level band; Shift draws it straight. |
 
 The tools sit in one row along the top, followed by the chosen tool's colour, size and options.
 Select a mark and they show, and change, that mark's style. Keys 1 to 8 pick a colour. Every mark
@@ -199,8 +199,13 @@ Delete removes it.
 an exact size in pixels. The crop snaps to edges in the image (hold ⌘ to switch that for one
 drag), and Revert to Original undoes every crop.
 
-The toolbar's Background button puts the screenshot on your wallpaper or a colour, with padding,
-a soft shadow, and rounded corners. Marks stay where you put them. None takes it off again.
+The toolbar's Background button sets the screenshot on a gradient, a colour, transparency, your
+desktop as it is right now, one of the macOS desktop pictures, or a picture you add (kept as a
+bookmark, never copied). Gradients are drawn from a few colours each and pictures come from your
+Mac, so Shotput ships no background images and never downloads any. Then set the padding, the
+corner radius, the shadow's depth, a ratio such as 1:1 or 16:9 with the screenshot's position in
+it, and blur for pictures. Marks stay where you put them, the last settings are kept for next
+time, and None takes it all off again.
 
 **Return** copies the result and closes the editor. ⌘C copies and keeps it open, and ⌘S saves.
 The bar under the image can also copy the text in the screenshot (read on your Mac), float it,

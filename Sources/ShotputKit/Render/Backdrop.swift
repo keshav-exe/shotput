@@ -1,38 +1,143 @@
 import AppKit
+import CoreImage
+import ImageIO
 import ScreenCaptureKit
 
-/// Puts a screenshot on a backdrop: the desktop wallpaper or a colour, with padding and a soft
-/// shadow. Used for window captures and by the editor's Background control.
+/// Puts a screenshot on a backdrop: a gradient, a colour, the desktop wallpaper or a picture, with
+/// padding, rounded corners and a soft shadow, optionally in a fixed aspect ratio. Used for window
+/// captures and by the editor's Background control. Every fill is drawn in code or comes from the
+/// Mac itself, so Shotput ships no background images.
 enum Backdrop {
     enum Fill: Equatable {
+        /// The wallpaper of the screen the capture came from, as it is on screen right now.
         case wallpaper
+        /// A picture on this Mac: one of the system's desktop pictures, or one you added.
+        case picture(URL)
         case color(NSColor)
+        case gradient(Gradient)
+        /// Nothing behind the image: padding and shadow only, on transparency.
+        case clear
+
+        /// Fills drawn from a picture, which the caller loads and passes to `compose`.
+        var needsPicture: Bool {
+            switch self {
+            case .wallpaper, .picture: true
+            default: false
+            }
+        }
+    }
+
+    /// A linear gradient, as colours from one end to the other and the direction it runs.
+    struct Gradient: Equatable, Hashable {
+        var colors: [UInt]
+        /// Degrees clockwise from pointing up: 90 runs left to right, 135 from top left to bottom right.
+        var angle: CGFloat = 135
+
+        var nsColors: [NSColor] { colors.map { NSColor(hex: $0) } }
+    }
+
+    enum Ratio: String, CaseIterable, Identifiable {
+        case auto, square, fourThree, threeTwo, sixteenNine, fourFive, nineSixteen
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .auto: L("Auto")
+            case .square: L("Square, 1:1")
+            case .fourThree: "4:3"
+            case .threeTwo: "3:2"
+            case .sixteenNine: "16:9"
+            case .fourFive: L("Portrait, 4:5")
+            case .nineSixteen: L("Story, 9:16")
+            }
+        }
+
+        /// Width over height, or nil to follow the image.
+        var value: CGFloat? {
+            switch self {
+            case .auto: nil
+            case .square: 1
+            case .fourThree: 4.0 / 3
+            case .threeTwo: 3.0 / 2
+            case .sixteenNine: 16.0 / 9
+            case .fourFive: 4.0 / 5
+            case .nineSixteen: 9.0 / 16
+            }
+        }
+    }
+
+    /// Where the image sits when a fixed ratio leaves room around it. Row by row from top left.
+    enum Alignment: Int, CaseIterable, Identifiable {
+        case topLeft, top, topRight, left, center, right, bottomLeft, bottom, bottomRight
+
+        var id: Int { rawValue }
+        /// 0 for leading, 0.5 for centred, 1 for trailing, on each axis. Y runs down.
+        var unit: CGPoint { CGPoint(x: CGFloat(rawValue % 3) / 2, y: CGFloat(rawValue / 3) / 2) }
     }
 
     struct Style: Equatable {
         var fill: Fill
-        /// Points of backdrop around the image.
+        /// Points of backdrop around the image, at the least.
         var padding: CGFloat
+        /// Points. Applies to area captures; window captures keep their own corners.
+        var cornerRadius: CGFloat = 10
+        /// 0 for none to 1 for a deep, soft shadow.
+        var shadow: CGFloat = 0.65
+        /// Softens a wallpaper or picture so the screenshot stands out from it.
+        var blur = false
+        var ratio: Ratio = .auto
+        var alignment: Alignment = .center
     }
 
+    // MARK: Layout
+
+    /// The canvas and where the image sits on it, in pixels with a top-left origin.
+    static func layout(imageSize: CGSize, scale: CGFloat, style: Style) -> (canvas: CGSize, frame: CGRect) {
+        let padding = (style.padding * scale).rounded()
+        var canvas = CGSize(width: imageSize.width + padding * 2, height: imageSize.height + padding * 2)
+        if let ratio = style.ratio.value {
+            if canvas.width / canvas.height < ratio {
+                canvas.width = (canvas.height * ratio).rounded()
+            } else {
+                canvas.height = (canvas.width / ratio).rounded()
+            }
+        }
+        let room = CGSize(width: canvas.width - padding * 2 - imageSize.width, height: canvas.height - padding * 2 - imageSize.height)
+        let unit = style.alignment.unit
+        let origin = CGPoint(x: (padding + room.width * unit.x).rounded(), y: (padding + room.height * unit.y).rounded())
+        return (canvas, CGRect(origin: origin, size: imageSize))
+    }
+
+    /// Where the image's top-left corner lands, in points, so marks can move with it.
+    static func imageOrigin(imageSize: CGSize, scale: CGFloat, style: Style?) -> CGPoint {
+        guard let style else { return .zero }
+        let origin = layout(imageSize: imageSize, scale: scale, style: style).frame.origin
+        return CGPoint(x: origin.x / scale, y: origin.y / scale)
+    }
+
+    // MARK: Drawing
+
     /// - Parameters:
-    ///   - wallpaper: Required for `.wallpaper`; without it the fill falls back to a neutral colour.
+    ///   - picture: The wallpaper or picture, for those fills. Without it they fall back to a neutral colour.
     ///   - addsShadow: False when the image already carries the system's window shadow.
-    static func compose(_ image: CGImage, scale: CGFloat, style: Style, wallpaper: CGImage?, addsShadow: Bool = true) -> CGImage {
-        let padding = Int((style.padding * scale).rounded())
-        let width = image.width + padding * 2
-        let height = image.height + padding * 2
+    static func compose(_ image: CGImage, scale: CGFloat, style: Style, wallpaper picture: CGImage?, addsShadow: Bool = true) -> CGImage {
+        let size = CGSize(width: image.width, height: image.height)
+        let (canvasSize, topLeftFrame) = layout(imageSize: size, scale: scale, style: style)
+        let width = Int(canvasSize.width), height = Int(canvasSize.height)
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return image }
         let canvas = CGRect(x: 0, y: 0, width: width, height: height)
+        context.interpolationQuality = .high
 
         switch style.fill {
-        case .wallpaper:
-            if let wallpaper {
-                context.interpolationQuality = .high
-                context.draw(wallpaper, in: aspectFill(CGSize(width: wallpaper.width, height: wallpaper.height), in: canvas))
+        case .wallpaper, .picture:
+            if let picture {
+                let source = style.blur ? blurred(picture, scale: scale) ?? picture : picture
+                context.draw(source, in: aspectFill(CGSize(width: source.width, height: source.height), in: canvas))
             } else {
                 context.setFillColor(NSColor(hex: 0xE9E6DF).cgColor)
                 context.fill(canvas)
@@ -40,18 +145,28 @@ enum Backdrop {
         case let .color(color):
             context.setFillColor((color.usingColorSpace(.sRGB) ?? .white).cgColor)
             context.fill(canvas)
+        case let .gradient(gradient):
+            drawGradient(gradient, in: canvas, context)
+        case .clear:
+            break
         }
 
-        let frame = CGRect(x: padding, y: padding, width: image.width, height: image.height)
+        // CoreGraphics' origin is bottom left.
+        let frame = CGRect(x: topLeftFrame.minX, y: canvasSize.height - topLeftFrame.maxY, width: size.width, height: size.height)
         // Area captures are square-cornered and opaque; round them so they sit on the backdrop
         // like a window does. Window captures already have their own transparent corners.
         let rounds = hasOpaqueCorner(image)
-        let radius = 10 * scale
+        let radius = min(max(style.cornerRadius, 0) * scale, min(frame.width, frame.height) / 2)
         let shape = CGPath(roundedRect: frame, cornerWidth: rounds ? radius : 0, cornerHeight: rounds ? radius : 0, transform: nil)
 
-        if addsShadow, padding > 0 {
+        let depth = min(max(style.shadow, 0), 1)
+        if addsShadow, depth > 0 {
             context.saveGState()
-            context.setShadow(offset: CGSize(width: 0, height: -10 * scale), blur: 36 * scale, color: NSColor.black.withAlphaComponent(0.32).cgColor)
+            context.setShadow(
+                offset: CGSize(width: 0, height: -(3 + 11 * depth) * scale),
+                blur: (8 + 44 * depth) * scale,
+                color: NSColor.black.withAlphaComponent(0.12 + 0.32 * depth).cgColor
+            )
             if rounds {
                 context.addPath(shape)
                 context.setFillColor(NSColor.black.cgColor)
@@ -71,13 +186,61 @@ enum Backdrop {
         return context.makeImage() ?? image
     }
 
+    /// The gradient across the whole canvas at its angle, with a faint grain so wide, smooth
+    /// gradients don't band in an 8-bit image.
+    static func drawGradient(_ gradient: Gradient, in canvas: CGRect, _ context: CGContext) {
+        let colors = gradient.nsColors.map(\.cgColor) as CFArray
+        guard let cg = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors, locations: nil) else { return }
+        // A line through the centre at the angle, long enough to reach the corners.
+        let radians = (gradient.angle - 90) * .pi / 180
+        let direction = CGPoint(x: cos(radians), y: -sin(radians))
+        let half = (abs(direction.x) * canvas.width + abs(direction.y) * canvas.height) / 2
+        let start = CGPoint(x: canvas.midX - direction.x * half, y: canvas.midY - direction.y * half)
+        let end = CGPoint(x: canvas.midX + direction.x * half, y: canvas.midY + direction.y * half)
+        context.saveGState()
+        context.clip(to: canvas)
+        context.drawLinearGradient(cg, start: start, end: end, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        if let grain {
+            context.setBlendMode(.overlay)
+            context.setAlpha(0.05)
+            context.draw(grain, in: CGRect(origin: canvas.origin, size: CGSize(width: grain.width, height: grain.height)), byTiling: true)
+        }
+        context.restoreGState()
+    }
+
+    private static let imageContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// A tile of monochrome noise from Core Image, made once: no image files involved.
+    private static let grain: CGImage? = {
+        guard let noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return nil }
+        let mono = noise.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
+        return imageContext.createCGImage(mono, from: CGRect(x: 0, y: 0, width: 256, height: 256))
+    }()
+
+    /// A softened copy of the picture, worked at a modest size since the blur hides the detail.
+    private static var blurCache: (key: ObjectIdentifier, image: CGImage)?
+
+    private static func blurred(_ picture: CGImage, scale: CGFloat) -> CGImage? {
+        if let blurCache, blurCache.key == ObjectIdentifier(picture) { return blurCache.image }
+        let input = CIImage(cgImage: picture)
+        let longest = max(input.extent.width, input.extent.height)
+        let shrink = min(1, 1600 / longest)
+        let small = input.transformed(by: CGAffineTransform(scaleX: shrink, y: shrink))
+        let radius = max(small.extent.width, small.extent.height) * 0.025
+        let soft = small.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: small.extent)
+        guard let result = imageContext.createCGImage(soft, from: small.extent) else { return nil }
+        blurCache = (ObjectIdentifier(picture), result)
+        return result
+    }
+
     private static func aspectFill(_ size: CGSize, in rect: CGRect) -> CGRect {
         let fill = max(rect.width / size.width, rect.height / size.height)
         let scaled = CGSize(width: size.width * fill, height: size.height * fill)
         return CGRect(x: rect.midX - scaled.width / 2, y: rect.midY - scaled.height / 2, width: scaled.width, height: scaled.height)
     }
 
-    private static func hasOpaqueCorner(_ image: CGImage) -> Bool {
+    /// Whether the image's top-left pixel is opaque: area captures are, window captures aren't.
+    static func hasOpaqueCorner(_ image: CGImage) -> Bool {
         var pixel: [UInt8] = [0, 0, 0, 0]
         guard let context = CGContext(
             data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
@@ -86,6 +249,20 @@ enum Backdrop {
         // Draw so the image's top-left pixel lands on the single pixel of the context.
         context.draw(image, in: CGRect(x: 0, y: 1 - image.height, width: image.width, height: image.height))
         return pixel[3] > 200
+    }
+
+    // MARK: Pictures
+
+    /// A picture file, decoded no larger than `maxPixels` on its long side.
+    static func loadPicture(_ url: URL, maxPixels: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     // MARK: Wallpaper
@@ -116,4 +293,38 @@ enum Backdrop {
         configuration.colorSpaceName = CGColorSpace.sRGB
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
     }
+}
+
+// MARK: - Built-in fills
+
+extension Backdrop.Gradient {
+    /// Drawn from a handful of colours each, so they cost nothing to ship.
+    static let presets: [Backdrop.Gradient] = [
+        .init(colors: [0xFF5F6D, 0xFFC371]),
+        .init(colors: [0xF857A6, 0xFF5858]),
+        .init(colors: [0xFF9A9E, 0xFAD0C4, 0xFBC2EB]),
+        .init(colors: [0xA18CD1, 0xFBC2EB]),
+        .init(colors: [0xE0C3FC, 0x8EC5FC]),
+        .init(colors: [0x7F00FF, 0xE100FF]),
+        .init(colors: [0x8E2DE2, 0x4A00E0]),
+        .init(colors: [0x4776E6, 0x8E54E9]),
+        .init(colors: [0x36D1DC, 0x5B86E5]),
+        .init(colors: [0x2E3192, 0x1BFFFF]),
+        .init(colors: [0x43CEA2, 0x185A9D]),
+        .init(colors: [0x11998E, 0x38EF7D]),
+        .init(colors: [0xD4FC79, 0x96E6A1]),
+        .init(colors: [0xF7971E, 0xFFD200]),
+        .init(colors: [0xFFDEE9, 0xB5FFFC]),
+        .init(colors: [0xFDFBFB, 0xEBEDEE]),
+        .init(colors: [0x0F2027, 0x203A43, 0x2C5364]),
+        .init(colors: [0x232526, 0x414345]),
+    ]
+}
+
+extension Backdrop {
+    /// Plain colours, light to dark and round the wheel.
+    static let colorPresets: [UInt] = [
+        0xFFFFFF, 0xF2F2F7, 0xC7C7CC, 0x8E8E93, 0x3A3A3C, 0x1C1C1E,
+        0xFF3B30, 0xFF9500, 0xFFCC00, 0x34C759, 0x00C7BE, 0x007AFF, 0x5856D6, 0xAF52DE, 0xFF2D55,
+    ]
 }

@@ -6,6 +6,7 @@
 //   shotput-dev settings out.png  renders every Settings tab and welcome step, checks they fit
 //   shotput-dev notch out.png     shows the notch drop island in each state and captures it
 //   shotput-dev fills out.png     draws shapes in every fill
+//   shotput-dev backdrops out.png one screenshot on a range of backgrounds
 //   shotput-dev float out.png     floats two screenshots, checks resizing and snapping, captures them
 //   shotput-dev installer out.png the installer window background, 660 by 400 at 2x
 import AppKit
@@ -78,8 +79,8 @@ func preview(to path: String) {
         Annotation(kind: .counter(center: CGPoint(x: 60, y: 392), number: 1), color: .red),
         Annotation(kind: .counter(center: CGPoint(x: 100, y: 392), number: 2), color: .blue, weight: .heavy),
         Annotation(kind: .counter(center: CGPoint(x: 142, y: 392), number: 12), color: .yellow, weight: .light),
-        Annotation(kind: .highlight(CGRect(x: 36, y: 344, width: 200, height: 22)), color: .yellow),
-        Annotation(kind: .highlight(CGRect(x: 416, y: 344, width: 160, height: 22)), color: .yellow),
+        Annotation(kind: .highlight([CGPoint(x: 40, y: 355), CGPoint(x: 232, y: 355)]), style: .defaults(for: .highlight)),
+        Annotation(kind: .highlight([CGPoint(x: 420, y: 355), CGPoint(x: 572, y: 355)]), style: .defaults(for: .highlight)),
         Annotation(kind: .redact(CGRect(x: 200, y: 16, width: 180, height: 52))),
         Annotation(kind: .pen((0 ... 40).map { i in
             CGPoint(x: 180 + CGFloat(i) * 4, y: 392 + sin(CGFloat(i) / 3) * 10)
@@ -160,6 +161,7 @@ case "settings": MainActor.assumeIsolated { settingsHarness(to: arguments[2]) }
 case "notch": MainActor.assumeIsolated { notchHarness(to: arguments[2]) }
 case "float": MainActor.assumeIsolated { floatHarness(to: arguments[2]) }
 case "fills": fillsHarness(to: arguments[2])
+case "backdrops": backdropsHarness(to: arguments[2])
 case "installer": installerBackground(to: arguments[2])
 case "film-capture": MainActor.assumeIsolated { filmCapture(dir: arguments[2]) }
 case "film-onboard": MainActor.assumeIsolated { filmOnboard(dir: arguments[2]) }

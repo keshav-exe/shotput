@@ -86,6 +86,16 @@ func settingsHarness(to path: String) {
     expect(ImageCoding.fileName(template: "100%% %q", date: date, appName: nil) == "100% %q", "literal and unknown tokens survive")
     expect(ImageCoding.fileName(template: "   ", date: date, appName: nil).hasPrefix("Shotput 2026"), "empty template falls back")
 
+    // The pixel at (x, y) from the top left, through a context of its own.
+    func sample(_ image: CGImage, x: Int, y: Int) -> [UInt8] {
+        var value: [UInt8] = [0, 0, 0, 0]
+        value.withUnsafeMutableBytes { bytes in
+            let one = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            one.draw(image, in: CGRect(x: -x, y: 1 - image.height + y, width: image.width, height: image.height))
+        }
+        return value
+    }
     // Backdrops: padding grows the image, marks keep their place on the screenshot, undo restores.
     let plain = bitmap(width: 200, height: 100) { $0.setFillColor(rgb(0x1F6FE5)); $0.fill(CGRect(x: 0, y: 0, width: 200, height: 100)) }
     let model = EditorModel(base: plain, scale: 2)
@@ -101,13 +111,39 @@ func settingsHarness(to path: String) {
     expect(model.base.width == 200 && model.backdrop == nil, "removing the backdrop gives the original back")
     model.undo()
     expect(model.base.width == 360 && model.backdrop?.style.padding == 40, "undo brings the backdrop back")
-    var corner: [UInt8] = [0, 0, 0, 0]
-    let probe = CGContext(data: &corner, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                          space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     let framed = Backdrop.compose(plain, scale: 2, style: style, wallpaper: nil)
-    probe.draw(framed, in: CGRect(x: -40, y: 1 - framed.height + 40, width: framed.width, height: framed.height))
-    expect(corner[0] > 150, "area captures get rounded corners on a backdrop (corner pixel is backdrop, not image)")
+    expect(sample(framed, x: 40, y: 40)[0] > 150, "area captures get rounded corners on a backdrop (corner pixel is backdrop, not image)")
     write(framed, scale: 2, to: "\(base)-backdrop.png")
+
+    // Ratio and alignment: the canvas takes the ratio, the screenshot moves within it, and marks follow.
+    let square = Backdrop.Style(fill: .gradient(Backdrop.Gradient.presets[0]), padding: 20, ratio: .square, alignment: .bottomRight)
+    let layout = Backdrop.layout(imageSize: CGSize(width: 200, height: 100), scale: 2, style: square)
+    expect(layout.canvas == CGSize(width: 280, height: 280), "a square ratio makes a square canvas around the padded image")
+    expect(layout.frame.origin == CGPoint(x: 40, y: 140), "bottom right puts the image in that corner, inside the padding")
+    model.setBackdrop(square, wallpaper: nil)
+    let shifted: CGPoint? = { if case let .counter(center, _) = model.annotations[0].kind { return center }; return nil }()
+    expect(shifted == CGPoint(x: 30, y: 80), "marks follow the screenshot when the ratio moves it")
+    expect(model.base.width == 280 && model.base.height == 280, "the editor shows the ratio's canvas")
+
+    // Transparent backdrop: rounded corners are see-through, and the radius is the one asked for.
+    let clear = Backdrop.compose(plain, scale: 2, style: Backdrop.Style(fill: .clear, padding: 20, cornerRadius: 16, shadow: 0), wallpaper: nil)
+    expect(sample(clear, x: 41, y: 41)[3] < 40, "a transparent backdrop leaves rounded corners see-through")
+    let sharp = Backdrop.compose(plain, scale: 2, style: Backdrop.Style(fill: .clear, padding: 20, cornerRadius: 0, shadow: 0), wallpaper: nil)
+    expect(sample(sharp, x: 41, y: 41)[3] > 240, "a zero radius keeps square corners")
+
+    // Highlighter ink multiplies: dark text under it stays dark, white under it turns the ink's colour.
+    let page = bitmap(width: 40, height: 20) { ctx in
+        ctx.setFillColor(rgb(0xFFFFFF)); ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 20))
+        ctx.setFillColor(rgb(0x111111)); ctx.fill(CGRect(x: 20, y: 0, width: 20, height: 20))
+    }
+    let marker = Annotation(kind: .highlight([CGPoint(x: 0, y: 10), CGPoint(x: 40, y: 10)]), style: .defaults(for: .highlight))
+    if let inked = AnnotationRenderer().flatten(base: page, scale: 1, annotations: [marker], outputScale: 1) {
+        let onWhite = sample(inked, x: 8, y: 10), onDark = sample(inked, x: 30, y: 10)
+        expect(onWhite[0] > 230 && onWhite[2] < 170, "highlighter turns white paper yellow")
+        expect(onDark.prefix(3).allSatisfy { $0 < 30 }, "dark text under the highlighter stays dark")
+    } else {
+        expect(false, "highlighter renders")
+    }
 
     print(failures == 0 ? "all checks passed" : "\(failures) checks failed")
     if failures > 0 { exit(1) }

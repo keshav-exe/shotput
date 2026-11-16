@@ -20,7 +20,35 @@ public final class AnnotationRenderer {
     ///   - scale: Base image pixels per point.
     ///   - zoom: Device pixels per point for this context beyond its base transform. Shadows ignore
     ///     the CTM, so they need this to stay proportional.
-    public func draw(_ annotations: [Annotation], base: CGImage, scale: CGFloat, zoom: CGFloat, in ctx: CGContext) {
+    /// Which marks a call draws. Highlighter strokes are multiplied into the image, so on screen
+    /// they live in a layer of their own between the screenshot and the other marks.
+    public enum Pass {
+        /// Everything, for export: highlighter strokes multiplied in first, then the rest on top.
+        case all
+        /// Only highlighter strokes, plainly: the layer they're drawn in does the multiplying.
+        case markers
+        /// Everything but highlighter strokes.
+        case marks
+    }
+
+    public func draw(_ annotations: [Annotation], base: CGImage, scale: CGFloat, zoom: CGFloat, in ctx: CGContext, pass: Pass = .all) {
+        let strokes = annotations.filter { if case .highlight = $0.kind { true } else { false } }
+        switch pass {
+        case .markers:
+            drawMarkers(strokes, ctx)
+            return
+        case .all where !strokes.isEmpty:
+            // One group, multiplied in as a whole, matches how the layer composites on screen.
+            ctx.saveGState()
+            ctx.setBlendMode(.multiply)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            drawMarkers(strokes, ctx)
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
+        default:
+            break
+        }
+        let annotations = annotations.filter { if case .highlight = $0.kind { false } else { true } }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
         let bounds = CGRect(x: 0, y: 0, width: CGFloat(base.width) / scale, height: CGFloat(base.height) / scale)
@@ -80,13 +108,8 @@ public final class AnnotationRenderer {
             shape(CGPath(ellipseIn: rect, transform: nil), a, zoom, ctx)
         case let .pen(points):
             stroke(Self.smoothPath(through: points), a, zoom, ctx)
-        case let .highlight(rect):
-            let radius = min(3, min(rect.width, rect.height) / 2)
-            layer(a, zoom, ctx) {
-                ctx.addPath(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
-                ctx.setFillColor(a.color.nsColor.withAlphaComponent(0.38).cgColor)
-                ctx.fillPath()
-            }
+        case .highlight:
+            break
         case let .redact(rect):
             drawRedaction(rect, a, base: base, scale: scale, zoom, ctx)
         case let .counter(center, number):
@@ -115,6 +138,45 @@ public final class AnnotationRenderer {
         body()
         ctx.endTransparencyLayer()
         ctx.restoreGState()
+    }
+
+    /// Marker strokes: a broad, translucent band with rounded ends, like a felt-tip highlighter.
+    /// Where two cross, the second darkens the first, as ink does.
+    private func drawMarkers(_ strokes: [Annotation], _ ctx: CGContext) {
+        for a in strokes {
+            guard case let .highlight(points) = a.kind, let first = points.first else { continue }
+            let path = points.count > 2 ? Self.smoothPath(through: points) : {
+                let line = CGMutablePath()
+                line.move(to: first)
+                line.addLine(to: points.last ?? first)
+                return line
+            }()
+            ctx.saveGState()
+            ctx.setAlpha(min(max(a.style.opacity, 0.05), 1))
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            ctx.addPath(path)
+            ctx.setLineWidth(a.style.size)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            ctx.setStrokeColor(Self.markerColor(a.color.nsColor).withAlphaComponent(Self.markerInk).cgColor)
+            ctx.strokePath()
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
+        }
+    }
+
+    /// How much of the colour a marker lays down before it's multiplied into the image.
+    static let markerInk: CGFloat = 0.6
+
+    /// The palette colour as highlighter ink: bright and saturated like a fluorescent marker, and
+    /// the warm palette yellow turned the lemon of a real one. Greys, black and white stay put.
+    static func markerColor(_ color: NSColor) -> NSColor {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return color }
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        guard saturation > 0.15 else { return rgb }
+        if (0.09 ... 0.17).contains(hue) { hue = 0.155 }
+        return NSColor(hue: hue, saturation: max(saturation, 0.8), brightness: 1, alpha: 1).usingColorSpace(.sRGB) ?? rgb
     }
 
     private func dash(_ a: Annotation, _ width: CGFloat, _ ctx: CGContext) {

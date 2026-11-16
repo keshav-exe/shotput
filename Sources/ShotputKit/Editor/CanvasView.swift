@@ -11,6 +11,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case endpoint(id: UUID, movesStart: Bool, creating: Bool)
         case bend(id: UUID)
         case pen(id: UUID)
+        case marker(id: UUID, start: CGPoint)
         case cropNew(anchor: CGPoint)
         case cropMove(start: CGPoint, original: CGRect)
         case cropResize(handle: CropHandle, original: CGRect)
@@ -36,6 +37,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private let renderer = AnnotationRenderer()
     private let baseView = NSView()
+    /// Highlighter strokes, multiplied into the screenshot below by Core Animation so text under
+    /// them stays dark, the way ink from a real highlighter does.
+    private let markers = MarkView()
     private let marks = MarkView()
     private var drag = Drag.none
     private var clickedAreaMark: UUID?
@@ -59,6 +63,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         baseView.layer?.magnificationFilter = .nearest
         baseView.layer?.minificationFilter = .trilinear
         addSubview(baseView)
+
+        markers.wantsLayer = true
+        markers.layerUsesCoreImageFilters = true
+        markers.layer?.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
+        markers.draw = { [unowned self] ctx in self.drawMarkers(ctx) }
+        addSubview(markers)
 
         marks.draw = { [unowned self] ctx in self.drawMarks(ctx) }
         addSubview(marks)
@@ -84,6 +94,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             enclosingScrollView?.reflectScrolledClipView(enclosingScrollView!.contentView)
         }
         baseView.frame = bounds
+        markers.frame = bounds
         marks.frame = bounds
         if baseView.layer?.contents as AnyObject? !== model.base {
             baseView.layer?.contents = model.base
@@ -94,6 +105,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             window?.invalidateCursorRects(for: self)
         }
         marks.needsDisplay = true
+        markers.needsDisplay = true
     }
 
     override func resetCursorRects() {
@@ -102,9 +114,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     // MARK: Drawing
 
+    private func drawMarkers(_ ctx: CGContext) {
+        renderer.draw(model.annotations, base: model.base, scale: model.scale, zoom: zoom, in: ctx, pass: .markers)
+    }
+
     private func drawMarks(_ ctx: CGContext) {
         let visible = model.annotations.filter { $0.id != editing?.id }
-        renderer.draw(visible, base: model.base, scale: model.scale, zoom: zoom, in: ctx)
+        renderer.draw(visible, base: model.base, scale: model.scale, zoom: zoom, in: ctx, pass: .marks)
         drawSelection(ctx)
         drawCrop(ctx)
     }
@@ -305,7 +321,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .ellipse:
             drag = .rect(id: create(.ellipse(zero)), anchor: start, creating: true)
         case .highlight:
-            drag = .rect(id: create(.highlight(zero)), anchor: start, creating: true)
+            drag = .marker(id: create(.highlight([p])), start: p)
         case .redact:
             drag = .rect(id: create(.redact(zero)), anchor: start, creating: true)
         case .spotlight:
@@ -362,6 +378,20 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 copy.kind = .pen(points)
                 return copy
             }
+        case let .marker(id, start):
+            model.replace(id) { annotation in
+                guard case var .highlight(points) = annotation.kind else { return annotation }
+                if constrain {
+                    // Shift draws it straight, level when it's nearly level.
+                    points = [start, Self.leveled(from: start, to: raw)]
+                } else {
+                    guard let last = points.last, last.distance(to: raw) >= 1.5 / zoom else { return annotation }
+                    points.append(raw)
+                }
+                var copy = annotation
+                copy.kind = .highlight(points)
+                return copy
+            }
         case let .cropNew(anchor):
             let p = snapped(raw.clamped(to: imageBounds), event)
             model.crop?.rect = fitted(CGRect(from: anchor, to: p), anchor: anchor, toward: p)
@@ -405,6 +435,16 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 model.replace(id) { var copy = $0; copy.kind = shape.kind; return copy }
                 model.showToast("Made it a \(shape.name). ⌘Z keeps the sketch")
             }
+        case let .marker(id, _):
+            guard let annotation = model.annotations.first(where: { $0.id == id }),
+                  case let .highlight(points) = annotation.kind else { break }
+            let length = zip(points, points.dropFirst()).reduce(0) { $0 + $1.0.distance(to: $1.1) }
+            if points.count < 2 || length < 3 {
+                model.discardGesture()
+                model.selectedID = clickedAreaMark
+            } else if let tidy = Self.tidied(points, width: annotation.style.size) {
+                model.replace(id) { var copy = $0; copy.kind = .highlight(tidy); return copy }
+            }
         case .cropNew:
             // A click outside the box, not a drag, leaves the old box alone rather than a sliver.
             if let rect = model.crop?.rect, rect.width < 4 || rect.height < 4 {
@@ -413,6 +453,29 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         default:
             break
         }
+    }
+
+    /// The end of a straight marker stroke, pulled level when it's within a few degrees of it.
+    private static func leveled(from start: CGPoint, to end: CGPoint) -> CGPoint {
+        let delta = end - start
+        guard abs(delta.x) > 0, abs(delta.y) / abs(delta.x) < tan(8 * CGFloat.pi / 180) else { return end }
+        return CGPoint(x: end.x, y: start.y)
+    }
+
+    /// A hand-drawn marker stroke that stayed close to a straight line becomes that line, and one
+    /// that ran nearly level becomes level, centred on the stroke: a tidy band across the text.
+    /// Nil leaves the stroke as drawn.
+    private static func tidied(_ points: [CGPoint], width: CGFloat) -> [CGPoint]? {
+        guard points.count > 2, let first = points.first, let last = points.last else { return nil }
+        let chord = last - first
+        guard chord.length > width else { return nil }
+        let tolerance = max(width * 0.45, 3)
+        guard points.allSatisfy({ $0.distance(toSegment: first, last) <= tolerance }) else { return nil }
+        if abs(chord.y) / max(abs(chord.x), 0.001) < tan(8 * CGFloat.pi / 180) {
+            let y = points.reduce(0) { $0 + $1.y } / CGFloat(points.count)
+            return [CGPoint(x: first.x, y: y), CGPoint(x: last.x, y: y)]
+        }
+        return [first, last]
     }
 
     private func finishCreating(_ id: UUID, isValid: (Annotation) -> Bool) {

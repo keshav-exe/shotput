@@ -443,25 +443,91 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc func showBackground(_ sender: Any?) {
         guard let item = (sender as? NSToolbarItem) ?? actionItems[.background]?.item else { return }
         backdropControls.sync(model.backdrop?.style)
+        backdropControls.hasOwnCorners = !Backdrop.hasOpaqueCorner(model.backdrop?.plain ?? model.base)
         let popover = NSPopover()
+        // Stays open while you try fills and drag sliders; a click on the screenshot closes it.
         popover.behavior = .transient
-        let host = NSHostingController(rootView: BackdropPicker(controls: backdropControls))
+        let picker = BackdropPicker(controls: backdropControls) { [weak self, weak popover] in
+            popover?.close()
+            self?.addPictures()
+        }
+        let host = NSHostingController(rootView: picker)
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
         popover.show(relativeTo: item)
+        loadDesktopThumbnail()
+    }
+
+    private func addPictures() {
+        BackdropLibrary.shared.add(over: window) { [weak self] picture in
+            self?.backdropControls.choose(.picture(picture.url))
+        }
+    }
+
+    /// The desktop swatch shows the wallpaper behind this screenshot's screen, captured once.
+    private func loadDesktopThumbnail() {
+        guard backdropControls.desktopThumbnail == nil else { return }
+        Task { @MainActor in
+            if wallpaper == nil { wallpaper = await Backdrop.wallpaper(for: capture.screen) }
+            guard let wallpaper else { return }
+            let thumbnail = Self.thumbnail(of: wallpaper, longest: 120)
+            backdropControls.desktopThumbnail = thumbnail
+        }
+    }
+
+    private static func thumbnail(of image: CGImage, longest: CGFloat) -> NSImage? {
+        let ratio = longest / CGFloat(max(image.width, image.height))
+        let size = CGSize(width: (CGFloat(image.width) * ratio).rounded(), height: (CGFloat(image.height) * ratio).rounded())
+        guard let ctx = CGContext(data: nil, width: Int(size.width) * 2, height: Int(size.height) * 2, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: size.width * 2, height: size.height * 2))
+        return ctx.makeImage().map { NSImage(cgImage: $0, size: size) }
+    }
+
+    /// The picture behind a picture fill, loaded once and kept while the editor is open.
+    private var loadedPicture: (url: URL, image: CGImage)?
+
+    private func picture(for fill: Backdrop.Fill?) async -> CGImage? {
+        switch fill {
+        case .wallpaper:
+            if wallpaper == nil { wallpaper = await Backdrop.wallpaper(for: capture.screen) }
+            return wallpaper
+        case let .picture(url):
+            if let loadedPicture, loadedPicture.url == url { return loadedPicture.image }
+            // Big enough for the framed screenshot at its full size, and no bigger.
+            let plain = model.backdrop?.plain ?? model.base
+            let longest = max(plain.width, plain.height) + Int(400 * model.scale)
+            let image = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                return Backdrop.loadPicture(url, maxPixels: longest)
+            }.value
+            if let image { loadedPicture = (url, image) }
+            return image
+        default:
+            return nil
+        }
     }
 
     private func applyBackdrop(_ style: Backdrop.Style?, continuing: Bool) {
         canvas.commitText()
-        let needsWallpaper = style?.fill == .wallpaper && wallpaper == nil
-        guard needsWallpaper else {
-            model.setBackdrop(style, wallpaper: wallpaper, coalesce: continuing)
+        let fill = style?.fill
+        let ready: CGImage? = switch fill {
+        case .wallpaper: wallpaper
+        case let .picture(url): loadedPicture?.url == url ? loadedPicture?.image : nil
+        default: nil
+        }
+        guard fill?.needsPicture == true, ready == nil else {
+            model.setBackdrop(style, wallpaper: ready, coalesce: continuing)
             if fitsWindow { zoomToFit() }
             return
         }
         Task { @MainActor in
-            wallpaper = await Backdrop.wallpaper(for: capture.screen)
-            model.setBackdrop(style, wallpaper: wallpaper, coalesce: continuing)
+            let image = await picture(for: fill)
+            // Only if that's still the choice once it has loaded.
+            guard backdropControls.style?.fill == fill else { return }
+            model.setBackdrop(backdropControls.style, wallpaper: image, coalesce: continuing)
             if fitsWindow { zoomToFit() }
         }
     }

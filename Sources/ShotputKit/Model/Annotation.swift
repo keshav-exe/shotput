@@ -46,7 +46,8 @@ public enum Tool: String, CaseIterable, Codable {
         case .text: .font
         case .counter: .counter
         case .redact: .strength
-        case .select, .filledRectangle, .spotlight, .highlight: .none
+        case .highlight: .marker
+        case .select, .filledRectangle, .spotlight: .none
         }
     }
 
@@ -54,7 +55,7 @@ public enum Tool: String, CaseIterable, Codable {
 }
 
 public enum SizeKind {
-    case stroke, font, counter, strength, none
+    case stroke, font, counter, strength, marker, none
 
     /// The sizes offered in the toolbar's menu, in points.
     var presets: [CGFloat] {
@@ -63,6 +64,7 @@ public enum SizeKind {
         case .font: [12, 14, 16, 18, 20, 24, 28, 36, 48, 64, 72]
         case .counter: [18, 22, 26, 30, 36, 44, 56]
         case .strength: [4, 6, 8, 10, 14, 18, 24, 32]
+        case .marker: [8, 12, 16, 20, 24, 32, 40]
         case .none: []
         }
     }
@@ -278,7 +280,7 @@ public struct MarkStyle: Equatable, Codable {
         case .counter: style.size = 28
         case .redact: style.size = 10; style.color = .black; style.shadow = false
         case .spotlight: style.opacity = 0.55; style.shadow = false; style.cornerRadius = 8
-        case .highlight: style.color = .yellow; style.shadow = false
+        case .highlight: style.color = .yellow; style.shadow = false; style.size = 20
         case .select: break
         }
         return style
@@ -321,7 +323,8 @@ public struct Annotation: Identifiable, Equatable {
         case text(origin: CGPoint, string: String)
         case counter(center: CGPoint, number: Int)
         case pen([CGPoint])
-        case highlight(CGRect)
+        /// A marker stroke, drawn translucent and multiplied into the image like a highlighter pen.
+        case highlight([CGPoint])
         case redact(CGRect)
         /// Dims everything outside this rect.
         case spotlight(CGRect)
@@ -432,7 +435,7 @@ extension Annotation {
     }
 
     /// Stroke width in points, for marks drawn with a line.
-    var lineWidth: CGFloat { tool.sizeKind == .stroke ? style.size : 4 }
+    var lineWidth: CGFloat { tool.sizeKind == .stroke || tool.sizeKind == .marker ? style.size : 4 }
 
     /// Points along a line or arrow, curved or straight. Nil for other kinds.
     func pathPoints(samples: Int = 24) -> [CGPoint]? {
@@ -473,14 +476,14 @@ extension Annotation {
             let points = pathPoints() ?? []
             guard let first = points.first else { return .zero }
             return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { $0.union(CGRect(origin: $1, size: .zero)) }
-        case let .rectangle(r), let .ellipse(r), let .highlight(r), let .redact(r), let .spotlight(r):
+        case let .rectangle(r), let .ellipse(r), let .redact(r), let .spotlight(r):
             return r
         case let .text(origin, string):
             return TextMetrics.frame(origin: origin, string: string, style: style)
         case let .counter(center, _):
             let r = style.size / 2
             return CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
-        case let .pen(points):
+        case let .pen(points), let .highlight(points):
             guard let first = points.first else { return .zero }
             return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) {
                 $0.union(CGRect(origin: $1, size: .zero))
@@ -491,7 +494,7 @@ extension Annotation {
     /// Rect-shaped kinds resize from their corners.
     var resizableRect: CGRect? {
         switch kind {
-        case let .rectangle(r), let .ellipse(r), let .highlight(r), let .redact(r), let .spotlight(r): r
+        case let .rectangle(r), let .ellipse(r), let .redact(r), let .spotlight(r): r
         default: nil
         }
     }
@@ -508,7 +511,6 @@ extension Annotation {
         switch kind {
         case .rectangle: copy.kind = .rectangle(rect)
         case .ellipse: copy.kind = .ellipse(rect)
-        case .highlight: copy.kind = .highlight(rect)
         case .redact: copy.kind = .redact(rect)
         case .spotlight: copy.kind = .spotlight(rect)
         default: break
@@ -549,7 +551,7 @@ extension Annotation {
         case let .line(a, b): copy.kind = .line(from: p(a), to: p(b))
         case let .rectangle(rect): copy.kind = .rectangle(r(rect))
         case let .ellipse(rect): copy.kind = .ellipse(r(rect))
-        case let .highlight(rect): copy.kind = .highlight(r(rect))
+        case let .highlight(points): copy.kind = .highlight(points.map(p))
         case let .redact(rect): copy.kind = .redact(r(rect))
         case let .spotlight(rect): copy.kind = .spotlight(r(rect))
         case let .counter(center, number): copy.kind = .counter(center: p(center), number: number)
@@ -606,9 +608,9 @@ extension Annotation {
             let radial = hypot(nx, ny)
             let band = reach / (min(r.width, r.height) / 2)
             return filled ? radial <= 1 + band : abs(radial - 1) <= band
-        case .text, .counter, .highlight, .redact, .spotlight:
+        case .text, .counter, .redact, .spotlight:
             return frame.insetBy(dx: -2, dy: -2).contains(p)
-        case let .pen(points):
+        case let .pen(points), let .highlight(points):
             guard points.count > 1 else { return points.first.map { $0.distance(to: p) <= reach } ?? false }
             return zip(points, points.dropFirst()).contains { p.distance(toSegment: $0, $1) <= reach }
         }

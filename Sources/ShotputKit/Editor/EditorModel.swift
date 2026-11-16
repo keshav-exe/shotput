@@ -310,10 +310,12 @@ final class EditorModel: ObservableObject {
     /// - Parameter coalesce: Folds into the previous step, for continuous changes like a slider.
     func setBackdrop(_ style: Backdrop.Style?, wallpaper: CGImage?, coalesce: Bool = false) {
         let plain = backdrop?.plain ?? base
-        let oldPadding = backdrop?.style.padding ?? 0
-        let newPadding = style?.padding ?? 0
+        let plainSize = CGSize(width: plain.width, height: plain.height)
+        // Where the screenshot sits moves with padding, and with ratio and alignment.
+        let old = Backdrop.imageOrigin(imageSize: plainSize, scale: scale, style: backdrop?.style)
+        let new = Backdrop.imageOrigin(imageSize: plainSize, scale: scale, style: style)
         if !coalesce { checkpoint() }
-        let shift = CGAffineTransform(translationX: newPadding - oldPadding, y: newPadding - oldPadding)
+        let shift = CGAffineTransform(translationX: new.x - old.x, y: new.y - old.y)
         annotations = annotations.map { $0.applying(shift) }
         geometry = geometry.concatenating(shift)
         if let style {

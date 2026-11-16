@@ -162,6 +162,7 @@ case "notch": MainActor.assumeIsolated { notchHarness(to: arguments[2]) }
 case "float": MainActor.assumeIsolated { floatHarness(to: arguments[2]) }
 case "fills": fillsHarness(to: arguments[2])
 case "backdrops": backdropsHarness(to: arguments[2])
+case "backdrop-timing": backdropTiming()
 case "installer": installerBackground(to: arguments[2])
 case "film-capture": MainActor.assumeIsolated { filmCapture(dir: arguments[2]) }
 case "film-onboard": MainActor.assumeIsolated { filmOnboard(dir: arguments[2]) }

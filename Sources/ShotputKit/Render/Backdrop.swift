@@ -129,7 +129,11 @@ enum Backdrop {
     /// ends up, in pixels from the top left. Window captures, with their transparent corners and
     /// shadow, are left as they are.
     static func prepare(_ image: CGImage, scale: CGFloat, style: Style) -> (image: CGImage, offset: CGPoint) {
-        guard style.inset > 0 || style.autoBalance, hasOpaqueCorner(image), let edge = edgeColor(of: image) else {
+        guard hasOpaqueCorner(image) else {
+            // A window: its corners, rounded to the radius asked for.
+            return (roundedWindow(image, radius: style.cornerRadius * scale), .zero)
+        }
+        guard style.inset > 0 || style.autoBalance, let edge = edgeColor(of: image) else {
             return (image, .zero)
         }
         let full = CGRect(x: 0, y: 0, width: image.width, height: image.height)
@@ -147,8 +151,18 @@ enum Backdrop {
         return (result, CGPoint(x: CGFloat(inset) - content.minX, y: CGFloat(inset) - content.minY))
     }
 
+    private static var edgeCache: (key: ObjectIdentifier, color: CGColor?)?
+
     /// The colour most of the image's outermost pixels share, or nil when the border is busy.
+    /// Worked out once per image, since slider drags ask on every step.
     private static func edgeColor(of image: CGImage) -> CGColor? {
+        if let edgeCache, edgeCache.key == ObjectIdentifier(image) { return edgeCache.color }
+        let color = findEdgeColor(of: image)
+        edgeCache = (ObjectIdentifier(image), color)
+        return color
+    }
+
+    private static func findEdgeColor(of image: CGImage) -> CGColor? {
         guard let pixels = Pixels(image) else { return nil }
         var counts: [UInt32: Int] = [:]
         let step = max(1, (pixels.width + pixels.height) / 400)
@@ -186,6 +200,93 @@ enum Backdrop {
         return bounds
     }
 
+    // MARK: Window corners
+
+    /// A window capture's body: the opaque rectangle inside its shadow, in pixels from the top
+    /// left, with the colours its four corners would have if they weren't rounded.
+    private struct WindowBody {
+        let rect: CGRect
+        /// Top left, top right, bottom left, bottom right.
+        let corners: [CGColor]
+    }
+
+    private static var bodyCache: (key: ObjectIdentifier, body: WindowBody?)?
+
+    private static func windowBody(of image: CGImage) -> WindowBody? {
+        if let bodyCache, bodyCache.key == ObjectIdentifier(image) { return bodyCache.body }
+        let body = findWindowBody(of: image)
+        bodyCache = (ObjectIdentifier(image), body)
+        return body
+    }
+
+    private static func findWindowBody(of image: CGImage) -> WindowBody? {
+        guard let pixels = Pixels(image) else { return nil }
+        // The middle row and column cross the body at full opacity; walk out from the centre to
+        // where opacity drops away into the shadow.
+        let midX = pixels.width / 2, midY = pixels.height / 2
+        guard pixels.alpha(midX, midY) > 250 else { return nil }
+        var left = midX, right = midX, top = midY, bottom = midY
+        while left > 0, pixels.alpha(left - 1, midY) > 250 { left -= 1 }
+        while right < pixels.width - 1, pixels.alpha(right + 1, midY) > 250 { right += 1 }
+        while top > 0, pixels.alpha(midX, top - 1) > 250 { top -= 1 }
+        while bottom < pixels.height - 1, pixels.alpha(midX, bottom + 1) > 250 { bottom += 1 }
+        let rect = CGRect(x: left, y: top, width: right - left + 1, height: bottom - top + 1)
+        guard rect.width > 40, rect.height > 40 else { return nil }
+        // Each corner's colour, read just past where the window's own rounding ends.
+        let reach = min(Int(rect.width) / 4, Int(rect.height) / 4, 48)
+        func color(_ x: Int, _ y: Int) -> CGColor {
+            let p = pixels.rgb(x, y)
+            return CGColor(srgbRed: CGFloat(p.0) / 255, green: CGFloat(p.1) / 255, blue: CGFloat(p.2) / 255, alpha: 1)
+        }
+        let corners = [
+            color(left + reach, top + 2), color(right - reach, top + 2),
+            color(left + reach, bottom - 2), color(right - reach, bottom - 2),
+        ]
+        return WindowBody(rect: rect, corners: corners)
+    }
+
+    /// The window with corners of `radius` pixels. Its own rounding is filled in first with each
+    /// corner's colour, so any radius works, square included. The shadow around it is kept.
+    static func roundedWindow(_ image: CGImage, radius: CGFloat) -> CGImage {
+        guard let body = windowBody(of: image) else { return image }
+        let width = image.width, height = image.height
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return image }
+        // CoreGraphics' origin is bottom left.
+        let rect = CGRect(x: body.rect.minX, y: CGFloat(height) - body.rect.maxY, width: body.rect.width, height: body.rect.height)
+        let r = min(max(radius, 0), min(rect.width, rect.height) / 2)
+        let full = CGRect(x: 0, y: 0, width: width, height: height)
+
+        // Outside the body: the shadow, untouched.
+        context.saveGState()
+        context.addRect(full)
+        context.addRect(rect)
+        context.clip(using: .evenOdd)
+        context.draw(image, in: full)
+        context.restoreGState()
+
+        // The body, squared off with its corner colours, then cut to the new radius.
+        context.saveGState()
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil))
+        context.clip()
+        let square = min(rect.width, rect.height) / 2
+        let patches = [
+            CGRect(x: rect.minX, y: rect.maxY - square, width: square, height: square),
+            CGRect(x: rect.maxX - square, y: rect.maxY - square, width: square, height: square),
+            CGRect(x: rect.minX, y: rect.minY, width: square, height: square),
+            CGRect(x: rect.maxX - square, y: rect.minY, width: square, height: square),
+        ]
+        for (patch, color) in zip(patches, body.corners) {
+            context.setFillColor(color)
+            context.fill(patch)
+        }
+        context.draw(image, in: full)
+        context.restoreGState()
+        return context.makeImage() ?? image
+    }
+
     /// The image's pixels as 8-bit sRGB, top row first.
     private struct Pixels {
         let width: Int, height: Int
@@ -208,6 +309,8 @@ enum Backdrop {
             height = h
             data = buffer
         }
+
+        func alpha(_ x: Int, _ y: Int) -> UInt8 { data[(y * width + x) * 4 + 3] }
 
         func rgb(_ x: Int, _ y: Int) -> (UInt8, UInt8, UInt8) {
             let i = (y * width + x) * 4
@@ -240,48 +343,21 @@ enum Backdrop {
         context.interpolationQuality = .high
         guard context.width > 0 else { return original }
 
-        switch style.fill {
-        case .wallpaper, .picture:
-            if let picture {
-                let source = style.blur ? blurred(picture, scale: scale) ?? picture : picture
-                context.draw(source, in: aspectFill(CGSize(width: source.width, height: source.height), in: canvas))
-            } else {
-                context.setFillColor(NSColor(hex: 0xE9E6DF).cgColor)
-                context.fill(canvas)
-            }
-        case let .color(color):
-            context.setFillColor((color.usingColorSpace(.sRGB) ?? .white).cgColor)
-            context.fill(canvas)
-        case let .gradient(gradient):
-            drawGradient(gradient, in: canvas, context)
-        case .clear:
-            break
+        if let fill = fillImage(style, picture: picture, scale: scale, size: canvasSize) {
+            context.draw(fill, in: canvas)
         }
 
         // CoreGraphics' origin is bottom left.
         let frame = CGRect(x: topLeftFrame.minX, y: canvasSize.height - topLeftFrame.maxY, width: size.width, height: size.height)
         // Area captures are square-cornered and opaque; round them so they sit on the backdrop
-        // like a window does. Window captures already have their own transparent corners.
+        // like a window does. Windows were rounded to the same radius as they were prepared.
         let rounds = hasOpaqueCorner(image)
         let radius = min(max(style.cornerRadius, 0) * scale, min(frame.width, frame.height) / 2)
         let shape = CGPath(roundedRect: frame, cornerWidth: rounds ? radius : 0, cornerHeight: rounds ? radius : 0, transform: nil)
 
         let depth = min(max(style.shadow, 0), 1)
-        if addsShadow, depth > 0 {
-            context.saveGState()
-            context.setShadow(
-                offset: CGSize(width: 0, height: -(3 + 11 * depth) * scale),
-                blur: (8 + 44 * depth) * scale,
-                color: NSColor.black.withAlphaComponent(0.12 + 0.32 * depth).cgColor
-            )
-            if rounds {
-                context.addPath(shape)
-                context.setFillColor(NSColor.black.cgColor)
-                context.fillPath()
-            } else {
-                context.draw(image, in: frame)
-            }
-            context.restoreGState()
+        if addsShadow, depth > 0, let shadow = softShadow(image, shape: rounds ? shape : nil, frame: frame, canvas: canvasSize, depth: depth, scale: scale) {
+            context.draw(shadow, in: canvas)
         }
         context.saveGState()
         if rounds {
@@ -293,9 +369,115 @@ enum Backdrop {
         return context.makeImage() ?? original
     }
 
+    /// The shadow on its own, at the canvas's size: drawn at a quarter of it, then scaled up on the
+    /// GPU. It's a wide, soft blur, so nothing is lost, and slider drags stay smooth even on a
+    /// full Retina screen.
+    private static func softShadow(_ image: CGImage, shape: CGPath?, frame: CGRect, canvas: CGSize, depth: CGFloat, scale: CGFloat) -> CGImage? {
+        let factor: CGFloat = 4
+        let width = Int((canvas.width / factor).rounded(.up)), height = Int((canvas.height / factor).rounded(.up))
+        guard width > 0, height > 0, let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.interpolationQuality = .medium
+        // Shadow offset and blur are in device pixels, which the scale below doesn't touch.
+        context.setShadow(
+            offset: CGSize(width: 0, height: -(3 + 11 * depth) * scale / factor),
+            blur: (8 + 44 * depth) * scale / factor,
+            color: NSColor.black.withAlphaComponent(0.12 + 0.32 * depth).cgColor
+        )
+        context.scaleBy(x: 1 / factor, y: 1 / factor)
+        if let shape {
+            context.addPath(shape)
+            context.setFillColor(NSColor.black.cgColor)
+            context.fillPath()
+        } else {
+            context.draw(image, in: frame)
+        }
+        guard let small = context.makeImage() else { return nil }
+        let extent = CGRect(origin: .zero, size: canvas)
+        let scaled = CIImage(cgImage: small)
+            .transformed(by: CGAffineTransform(scaleX: canvas.width / CGFloat(width), y: canvas.height / CGFloat(height)))
+            .cropped(to: extent)
+        return imageContext.createCGImage(scaled, from: extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+    }
+
+    // MARK: Fills
+
+    private struct FillKey: Equatable {
+        let fill: Fill
+        let blur: Bool
+        let size: CGSize
+        let picture: ObjectIdentifier?
+    }
+
+    /// The last fill drawn, reused while only corners, shadow or alignment change.
+    private static var fillCache: (key: FillKey, image: CGImage)?
+
+    /// The backdrop behind the screenshot, at the canvas's size. Nil for transparency.
+    private static func fillImage(_ style: Style, picture: CGImage?, scale: CGFloat, size: CGSize) -> CGImage? {
+        if case .clear = style.fill { return nil }
+        let key = FillKey(fill: style.fill, blur: style.blur, size: size, picture: picture.map(ObjectIdentifier.init))
+        if let fillCache, fillCache.key == key { return fillCache.image }
+        let image: CGImage?
+        if case let .gradient(gradient) = style.fill {
+            image = gradientImage(gradient, size: size)
+        } else {
+            let width = Int(size.width), height = Int(size.height)
+            guard let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+            let canvas = CGRect(x: 0, y: 0, width: width, height: height)
+            context.interpolationQuality = .high
+            switch style.fill {
+            case let .color(color):
+                context.setFillColor((color.usingColorSpace(.sRGB) ?? .white).cgColor)
+                context.fill(canvas)
+            default:
+                if let picture {
+                    let source = style.blur ? blurred(picture, scale: scale) ?? picture : picture
+                    context.draw(source, in: aspectFill(CGSize(width: source.width, height: source.height), in: canvas))
+                } else {
+                    context.setFillColor(NSColor(hex: 0xE9E6DF).cgColor)
+                    context.fill(canvas)
+                }
+            }
+            image = context.makeImage()
+        }
+        if let image { fillCache = (key, image) }
+        return image
+    }
+
+    /// A gradient at full size: drawn small, since it's smooth, then scaled up and given a faint
+    /// grain on the GPU so wide gradients don't band in an 8-bit image.
+    private static func gradientImage(_ gradient: Gradient, size: CGSize) -> CGImage? {
+        let factor: CGFloat = 4
+        let small = CGSize(width: max((size.width / factor).rounded(.up), 2), height: max((size.height / factor).rounded(.up), 2))
+        guard let context = CGContext(
+            data: nil, width: Int(small.width), height: Int(small.height), bitsPerComponent: 16, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        drawGradient(gradient, in: CGRect(origin: .zero, size: small), context, grained: false)
+        guard let smooth = context.makeImage() else { return nil }
+        let extent = CGRect(origin: .zero, size: size)
+        let scaled = CIImage(cgImage: smooth)
+            .transformed(by: CGAffineTransform(scaleX: size.width / small.width, y: size.height / small.height))
+            .cropped(to: extent)
+        guard let noise = CIFilter(name: "CIRandomGenerator")?.outputImage else {
+            return imageContext.createCGImage(scaled, from: extent)
+        }
+        // Grey noise overlaid, then mixed back in at a twentieth: each pixel nudged a shade up or
+        // down, as the grain was when drawn on the CPU.
+        let grey = noise.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0]).cropped(to: extent)
+        let overlaid = grey.applyingFilter("CIOverlayBlendMode", parameters: [kCIInputBackgroundImageKey: scaled])
+        let grained = overlaid.applyingFilter("CIMix", parameters: [kCIInputBackgroundImageKey: scaled, "inputAmount": 0.05])
+        return imageContext.createCGImage(grained, from: extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+    }
+
     /// The gradient across the whole canvas at its angle, with a faint grain so wide, smooth
     /// gradients don't band in an 8-bit image.
-    static func drawGradient(_ gradient: Gradient, in canvas: CGRect, _ context: CGContext) {
+    static func drawGradient(_ gradient: Gradient, in canvas: CGRect, _ context: CGContext, grained: Bool = true) {
         let colors = gradient.nsColors.map(\.cgColor) as CFArray
         guard let cg = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors, locations: nil) else { return }
         // A line through the centre at the angle, long enough to reach the corners.
@@ -307,7 +489,7 @@ enum Backdrop {
         context.saveGState()
         context.clip(to: canvas)
         context.drawLinearGradient(cg, start: start, end: end, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        if let grain {
+        if grained, let grain {
             context.setBlendMode(.overlay)
             context.setAlpha(0.05)
             context.draw(grain, in: CGRect(origin: canvas.origin, size: CGSize(width: grain.width, height: grain.height)), byTiling: true)

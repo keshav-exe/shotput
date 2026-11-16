@@ -37,7 +37,7 @@ struct NotchDropView: View {
                 SideBubble(model: model)
                     .padding(.top, (model.notchSize.height - NotchDropModel.sideBubbleSize.height) / 2)
                     .offset(x: model.sideBubbleOffset)
-                    .transition(.scale(scale: 0.4).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .bubble)
             }
         }
             .frame(width: NotchGeometry.canvas.width, height: NotchGeometry.canvas.height, alignment: .top)
@@ -48,11 +48,16 @@ struct NotchDropView: View {
             .modifier(DarkOnNotch(isOn: model.isHardware))
     }
 
-    /// Opening is a soft spring with a little give; closing is quicker and settles without
-    /// overshoot, since it's only getting out of the way.
+    /// Springs in the manner of the Dynamic Island: panels open with a little life, the ears and
+    /// anything settling back to them move firmly with barely any give, and closing to the bare
+    /// notch has none at all, since it's only getting out of the way.
     private var animation: Animation {
         if reduceMotion { return .easeOut(duration: 0.16) }
-        return model.phase == .hidden ? .spring(response: 0.3, dampingFraction: 1) : .spring(response: 0.42, dampingFraction: 0.78)
+        switch model.phase {
+        case .hidden: return .spring(response: 0.32, dampingFraction: 1)
+        case .badge, .armed: return .spring(response: 0.38, dampingFraction: 0.88)
+        default: return .spring(response: 0.44, dampingFraction: 0.8)
+        }
     }
 
     private var shape: NotchShape {
@@ -118,7 +123,7 @@ struct NotchDropView: View {
                 .frame(height: band)
                 .contentShape(.rect)
                 .onTapGesture { model.openTray() }
-                .transition(.opacity.animation(.easeOut(duration: 0.14)))
+                .transition(reduceMotion ? .opacity : .ears)
         case .tray:
             VStack(spacing: 0) {
                 Color.clear.frame(height: band)
@@ -131,7 +136,7 @@ struct NotchDropView: View {
         case .armed:
             Ears(model: model)
                 .frame(height: band)
-                .transition(.opacity.animation(.easeOut(duration: 0.12)))
+                .transition(reduceMotion ? .opacity : .ears)
         case .near, .targeted:
             VStack(spacing: 0) {
                 Color.clear.frame(height: band)
@@ -160,7 +165,53 @@ private struct DarkOnNotch: ViewModifier {
     }
 }
 
+/// How far the ears have come out from behind the notch: 0 tucked under it, 1 in place.
+/// Drawn in toward the notch's centre, soft and faint until they arrive, so they seem to slide
+/// out from under it rather than appear.
+private struct EarsEmerging: ViewModifier {
+    let progress: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(x: 0.72 + 0.28 * progress, y: 0.86 + 0.14 * progress, anchor: .center)
+            .blur(radius: (1 - progress) * 5)
+            .opacity(Double(progress))
+    }
+}
+
+/// The bubble beside Clove's ears, coming out from the notch's side.
+private struct BubbleEmerging: ViewModifier {
+    let progress: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(0.5 + 0.5 * progress, anchor: .leading)
+            .offset(x: (1 - progress) * -14)
+            .blur(radius: (1 - progress) * 4)
+            .opacity(Double(progress))
+    }
+}
+
 private extension AnyTransition {
+    /// The ears slide out a beat after the island starts to widen, and draw back in quickly.
+    static var ears: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: EarsEmerging(progress: 0), identity: EarsEmerging(progress: 1))
+                .animation(.spring(response: 0.42, dampingFraction: 0.82).delay(0.05)),
+            removal: .modifier(active: EarsEmerging(progress: 0), identity: EarsEmerging(progress: 1))
+                .animation(.easeIn(duration: 0.14))
+        )
+    }
+
+    static var bubble: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: BubbleEmerging(progress: 0), identity: BubbleEmerging(progress: 1))
+                .animation(.spring(response: 0.42, dampingFraction: 0.76).delay(0.04)),
+            removal: .modifier(active: BubbleEmerging(progress: 0), identity: BubbleEmerging(progress: 1))
+                .animation(.easeIn(duration: 0.14))
+        )
+    }
+
     /// Content waits for the island to start growing, then fades in; it leaves at once, so
     /// it's never squeezed by a shrinking shape.
     static var contentReveal: AnyTransition {

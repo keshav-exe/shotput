@@ -142,6 +142,20 @@ func settingsHarness(to path: String) {
     let inset = Backdrop.prepare(lopsided, scale: 2, style: Backdrop.Style(fill: .clear, padding: 0, inset: 5))
     expect(inset.image.width == 140 && inset.offset == CGPoint(x: 10, y: 10), "inset adds the edge colour all round, at the capture's scale")
 
+    // Window captures take the corner radius too: squared off at zero, rounder above their own.
+    let windowShot = bitmap(width: 240, height: 180) { ctx in
+        let body = CGRect(x: 30, y: 30, width: 180, height: 120)
+        ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 20, color: rgb(0x000000, 0.4))
+        ctx.addPath(CGPath(roundedRect: body, cornerWidth: 14, cornerHeight: 14, transform: nil))
+        ctx.setFillColor(rgb(0xFFFFFF)); ctx.fillPath()
+    }
+    let squared = Backdrop.roundedWindow(windowShot, radius: 0)
+    expect(sample(squared, x: 31, y: 31)[3] > 250 && sample(squared, x: 31, y: 31)[0] > 240, "a zero radius squares off a window's corners in its own colour")
+    let round = Backdrop.roundedWindow(windowShot, radius: 40)
+    expect(sample(round, x: 36, y: 36)[3] < 200, "a larger radius rounds a window further than its own corners")
+    expect(sample(round, x: 120, y: 90)[3] > 250, "and leaves the middle of the window alone")
+    expect(sample(round, x: 120, y: 160)[3] > 10, "and keeps the shadow below it")
+
     // Highlighter ink multiplies: dark text under it stays dark, white under it turns the ink's colour.
     let page = bitmap(width: 40, height: 20) { ctx in
         ctx.setFillColor(rgb(0xFFFFFF)); ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 20))

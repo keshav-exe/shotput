@@ -117,7 +117,8 @@ final class BackdropControls: ObservableObject {
     @Published var alignment: Backdrop.Alignment
     /// The custom colour's value, kept apart from the presets.
     @Published var customColor: NSColor
-    /// The screenshot brings its own corners (a window capture), so Corners and Inset don't apply.
+    /// The screenshot is a window capture, with its own edges and shadow, so Inset and
+    /// Auto-balance don't apply to it.
     @Published var hasOwnCorners = false
     /// The live wallpaper of the screen the capture came from, for its swatches.
     @Published var desktopThumbnail: NSImage?
@@ -624,12 +625,12 @@ struct BackdropSidebar: View {
             HStack(alignment: .top, spacing: 16) {
                 ValueSlider(title: L("Shadow"), value: $controls.shadow, range: 0 ... 1, step: 0.01, format: { "\(Int(($0 * 100).rounded()))" }, controls: controls)
                 ValueSlider(title: L("Corners"), value: $controls.cornerRadius, range: 0 ... 40, step: 1, format: { "\(Int($0))" }, controls: controls)
-                    .disabled(controls.hasOwnCorners)
             }
             if controls.hasOwnCorners {
-                Text(L("Window captures keep their own corners and edges."))
+                Text(L("A window keeps its own edges, so Inset and Auto-balance are off for it."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {

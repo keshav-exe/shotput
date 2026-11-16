@@ -49,7 +49,22 @@ func backdropsHarness(to path: String) {
         .init(fill: .gradient(gradients[11]), padding: 24, cornerRadius: 12, ratio: .square, alignment: .bottomRight),
         .init(fill: .gradient(gradients[3]), padding: 24, cornerRadius: 12, ratio: .sixteenNine),
     ]
-    let tiles = styles.map { Backdrop.compose(shot, scale: scale, style: $0, wallpaper: nil) }
+    var tiles = styles.map { Backdrop.compose(shot, scale: scale, style: $0, wallpaper: nil) }
+    // A window capture: rounded body, a title bar, and the system's shadow around it.
+    let window = bitmap(width: 380, height: 260) { ctx in
+        let body = CGRect(x: 40, y: 40, width: 300, height: 180)
+        ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 30, color: rgb(0x000000, 0.45))
+        ctx.addPath(CGPath(roundedRect: body, cornerWidth: 16, cornerHeight: 16, transform: nil))
+        ctx.setFillColor(rgb(0xFFFFFF)); ctx.fillPath()
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)
+        ctx.saveGState()
+        ctx.addPath(CGPath(roundedRect: body, cornerWidth: 16, cornerHeight: 16, transform: nil)); ctx.clip()
+        ctx.setFillColor(rgb(0xE8E6E1)); ctx.fill(CGRect(x: 40, y: 190, width: 300, height: 30))
+        ctx.restoreGState()
+    }
+    for radius in [0.0, 16, 40] {
+        tiles.append(Backdrop.compose(window, scale: scale, style: .init(fill: .gradient(gradients[8]), padding: 10, cornerRadius: radius), wallpaper: nil, addsShadow: false))
+    }
     let cell = CGSize(width: 420, height: 360)
     let columns = 4
     let rows = (tiles.count + columns - 1) / columns
@@ -83,4 +98,28 @@ private func downscaled(_ image: CGImage, by factor: Int) -> CGImage {
     ctx.interpolationQuality = .high
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
     return ctx.makeImage()!
+}
+
+/// How long a backdrop takes to draw for a full Retina screen, per slider tick.
+func backdropTiming() {
+    let shot = bitmap(width: 3024, height: 1964) { ctx in
+        ctx.setFillColor(rgb(0xF2F2F7)); ctx.fill(CGRect(x: 0, y: 0, width: 3024, height: 1964))
+        ctx.setFillColor(rgb(0x1F6FE5)); ctx.fill(CGRect(x: 400, y: 300, width: 1600, height: 900))
+    }
+    for (name, style) in [
+        ("gradient", Backdrop.Style(fill: .gradient(Backdrop.Gradient.presets[0]), padding: 48, cornerRadius: 16)),
+        ("colour", Backdrop.Style(fill: .color(.white), padding: 48, cornerRadius: 16)),
+        ("inset+balance", Backdrop.Style(fill: .gradient(Backdrop.Gradient.presets[0]), padding: 48, inset: 20, autoBalance: true, cornerRadius: 16)),
+        ("gradient, no shadow", Backdrop.Style(fill: .gradient(Backdrop.Gradient.presets[0]), padding: 48, cornerRadius: 16, shadow: 0)),
+        ("colour, no shadow", Backdrop.Style(fill: .color(.white), padding: 48, cornerRadius: 16, shadow: 0)),
+        ("clear, no shadow", Backdrop.Style(fill: .clear, padding: 48, cornerRadius: 16, shadow: 0)),
+    ] {
+        _ = Backdrop.compose(shot, scale: 2, style: style, wallpaper: nil)
+        let start = Date()
+        for radius in stride(from: 0.0, to: 20, by: 2) {
+            var s = style; s.cornerRadius = radius
+            _ = Backdrop.compose(shot, scale: 2, style: s, wallpaper: nil)
+        }
+        print(String(format: "%@: %.0f ms per tick", name, Date().timeIntervalSince(start) * 100))
+    }
 }

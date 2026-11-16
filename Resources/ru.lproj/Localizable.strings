@@ -524,5 +524,5 @@
 "Show less" = "Свернуть";
 "Show more" = "Показать все";
 "Wallpapers" = "Обои";
-"Window captures keep their own corners and edges." = "У снимков окон остаются свои углы и края.";
+"A window keeps its own edges, so Inset and Auto-balance are off for it." = "У окна остаются свои края, поэтому вставка и автобаланс для него выключены.";
 "Your desktop, blurred" = "Ваш рабочий стол, размытый";

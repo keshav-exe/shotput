@@ -61,7 +61,10 @@ final class PreviewPanelController {
             return
         }
         let size = Self.thumbnailSize(for: capture.pointSize)
-        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        // Made at its real size: a window that starts at zero squeezes the thumbnail out of
+        // place as it grows.
+        let initial = CGRect(origin: .zero, size: CGSize(width: size.width + Self.margin * 2, height: size.height + Self.margin * 2))
+        let panel = NSPanel(contentRect: initial, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -76,9 +79,7 @@ final class PreviewPanelController {
         let view = PreviewView(capture: capture, size: size)
         let card = Card(capture: capture, panel: panel, view: view, size: size)
         wire(card)
-        let host = ShadowHost(frame: CGRect(origin: .zero, size: CGSize(width: size.width + Self.margin * 2, height: size.height + Self.margin * 2)))
-        view.frame = host.bounds.insetBy(dx: Self.margin, dy: Self.margin)
-        view.autoresizingMask = [.width, .height]
+        let host = ShadowHost(frame: initial, inset: Self.margin)
         host.addSubview(view)
         panel.contentView = host
 
@@ -384,8 +385,11 @@ private extension CGSize {
 private final class ShadowHost: NSView {
     private let ambient = CALayer()
     private let contact = CALayer()
+    /// The margin the shadow lives in, all round the thumbnail.
+    private let inset: CGFloat
 
-    override init(frame: NSRect) {
+    init(frame: NSRect, inset: CGFloat) {
+        self.inset = inset
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = false
@@ -401,9 +405,22 @@ private final class ShadowHost: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         guard let thumbnail = subviews.first else { return }
+        // Placed here on every layout, never left to autoresizing: as the stack gathers and fans
+        // out its windows change size, and the thumbnail must always fill them less the margin.
+        thumbnail.frame = bounds.insetBy(dx: inset, dy: inset)
         let path = CGPath(roundedRect: thumbnail.frame, cornerWidth: Metrics.chipRadius, cornerHeight: Metrics.chipRadius, transform: nil)
         CATransaction.begin()
         CATransaction.setDisableActions(true)

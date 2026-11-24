@@ -27,6 +27,21 @@ func stackHarness(to path: String) {
     let visible = screen.visibleFrame
     let top = screen.frame.maxY - visible.maxY
     let region = CGRect(x: visible.maxX - 420, y: top + visible.height - 760, width: 420, height: 760)
+    /// Each card's window, and where its thumbnail sits inside it: it must fill the window less
+    /// the shadow margin, and the window must be on screen.
+    func report(_ name: String) {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        let panels = NSApp.windows.filter { $0 is NSPanel && $0.isVisible && $0.level == .floating }
+        for panel in panels {
+            guard let host = panel.contentView, let card = host.subviews.first else { continue }
+            let expected = host.bounds.insetBy(dx: 24, dy: 24)
+            let thumb = panel.frame.insetBy(dx: 24, dy: 24)
+            let fits = card.frame.equalTo(expected)
+            let onScreen = visible.contains(thumb)
+            print("  \(fits && onScreen ? "ok  " : "FAIL") \(name) window \(panel.frame) card \(card.frame) host \(host.bounds.size)\(onScreen ? "" : " OFF SCREEN")")
+        }
+    }
+
     // Drawn from the windows themselves, back to front, so it needs no Screen Recording.
     let area = CGRect(x: visible.maxX - 420, y: visible.minY, width: 420, height: 760)
     func shoot(_ name: String) {
@@ -50,14 +65,39 @@ func stackHarness(to path: String) {
         }
         write(image, scale: scale, to: "\(base)-\(name).png")
     }
+    report("stacked")
     shoot("stacked")
     // Put the pointer on the front card, as if reaching for it.
     let saved = NSEvent.mouseLocation
     let primary = NSScreen.screens[0].frame.height
     CGWarpMouseCursorPosition(CGPoint(x: visible.maxX - 120, y: primary - (visible.minY + 90)))
     PreviewPanelController.shared.pointerEntered()
+    report("spread")
     shoot("spread")
     CGWarpMouseCursorPosition(CGPoint(x: saved.x, y: primary - saved.y))
     PreviewPanelController.shared.dismissAll()
     RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+
+    // Every corner, with a stack and with one small capture alone.
+    let savedCorner = settings.previewCorner
+    defer { settings.previewCorner = savedCorner }
+    for corner in Settings.Corner.allCases {
+        settings.previewCorner = corner
+        let small = bitmap(width: 120, height: 60) { ctx in
+            ctx.setFillColor(rgb(0xE5484D))
+            ctx.fill(CGRect(x: 0, y: 0, width: 120, height: 60))
+        }
+        PreviewPanelController.shared.show(Capture(image: small, scale: 2, screen: screen))
+        report("\(corner.rawValue) alone")
+        for color in colors.prefix(3) {
+            let image = bitmap(width: 1600, height: 1000) { ctx in
+                ctx.setFillColor(rgb(color))
+                ctx.fill(CGRect(x: 0, y: 0, width: 1600, height: 1000))
+            }
+            PreviewPanelController.shared.show(Capture(image: image, scale: 2, screen: screen))
+        }
+        report("\(corner.rawValue) stacked")
+        PreviewPanelController.shared.dismissAll()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    }
 }

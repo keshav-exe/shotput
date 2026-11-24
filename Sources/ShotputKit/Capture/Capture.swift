@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import UniformTypeIdentifiers
 
 /// One screenshot and where on screen it came from. Mutable state is guarded by a lock.
@@ -37,6 +38,19 @@ final class Capture: @unchecked Sendable {
         cachedPNG = nil
         cachedFile = nil
         lock.unlock()
+    }
+
+    /// Trades the raw bitmap for its PNG once that exists, at full resolution. The image then
+    /// decodes again only if something draws it, such as the editor, and keeps the pixels from
+    /// then on. A stack of previews holds a few MB each this way, not 60 MB per 5K screenshot.
+    func compact() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let cachedPNG, cachedPNG.scale == scale,
+              let source = CGImageSourceCreateWithData(cachedPNG.data as CFData, nil),
+              let lazy = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCache: true] as CFDictionary),
+              lazy.width == image.width, lazy.height == image.height else { return }
+        image = lazy
     }
 
     /// Encoded once and reused for the clipboard, saving, and dragging. Safe from any thread.

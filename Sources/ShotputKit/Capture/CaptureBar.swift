@@ -68,7 +68,7 @@ final class CaptureBar {
 
     func show() {
         guard panel == nil else { return }
-        PreviewPanelController.shared.dismiss()
+        PreviewPanelController.shared.dismissAll()
 
         let host = NSHostingView(rootView: CaptureBarView(defaultMode: lastMode) { [weak self] mode in
             if let mode { self?.pick(mode) } else { self?.close() }

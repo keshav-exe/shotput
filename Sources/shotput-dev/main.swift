@@ -7,6 +7,7 @@
 //   shotput-dev notch out.png     shows the notch drop island in each state and captures it
 //   shotput-dev fills out.png     draws shapes in every fill
 //   shotput-dev backdrops out.png one screenshot on a range of backgrounds
+//   shotput-dev stack out.png     stacks four previews in the corner, then fans them out
 //   shotput-dev float out.png     floats two screenshots, checks resizing and snapping, captures them
 //   shotput-dev installer out.png the installer window background, 660 by 400 at 2x
 import AppKit
@@ -160,6 +161,7 @@ case "overlay": MainActor.assumeIsolated { overlayHarness(to: arguments[2]) }
 case "settings": MainActor.assumeIsolated { settingsHarness(to: arguments[2]) }
 case "notch": MainActor.assumeIsolated { notchHarness(to: arguments[2]) }
 case "float": MainActor.assumeIsolated { floatHarness(to: arguments[2]) }
+case "stack": MainActor.assumeIsolated { stackHarness(to: arguments[2]) }
 case "fills": fillsHarness(to: arguments[2])
 case "backdrops": backdropsHarness(to: arguments[2])
 case "backdrop-timing": backdropTiming()

@@ -2,7 +2,8 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
-/// Settings, one tab per area, so no single page grows taller than the screen.
+/// Settings, in the window every Mac app uses for them: a toolbar of panes across the top, each
+/// a grouped form of the same size.
 final class SettingsWindowController: NSWindowController {
     enum Pane: Int, CaseIterable {
         /// Numbered as they were added, so a remembered tab stays the same tab.
@@ -20,15 +21,15 @@ final class SettingsWindowController: NSWindowController {
             }
         }
 
-        var icon: Icon {
+        var symbol: String {
             switch self {
-            case .general: .settings
-            case .capture: .capture
-            case .editor: .annotate
-            case .output: .folder
-            case .pins: .pin
-            case .shortcuts: .command
-            case .about: .info
+            case .general: "gearshape"
+            case .capture: "camera.viewfinder"
+            case .editor: "pencil.tip.crop.circle"
+            case .output: "square.and.arrow.down"
+            case .pins: "pin"
+            case .shortcuts: "keyboard"
+            case .about: "info.circle"
             }
         }
 
@@ -52,13 +53,13 @@ final class SettingsWindowController: NSWindowController {
         tabs.tabStyle = .toolbar
         tabs.transitionOptions = [.allowUserInteraction]
         for pane in Pane.allCases {
-            let host = NSHostingController(rootView: pane.view.frame(width: Self.width).fixedSize(horizontal: false, vertical: true))
+            let host = NSHostingController(rootView: pane.view)
             host.sizingOptions = .preferredContentSize
             // The tab view controller titles the window from the selected pane's controller.
             host.title = pane.title
             let item = NSTabViewItem(viewController: host)
             item.label = pane.title
-            item.image = pane.icon.plain(label: pane.title)
+            item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
             tabs.addTabViewItem(item)
         }
         let window = NSWindow(contentViewController: tabs)
@@ -72,7 +73,7 @@ final class SettingsWindowController: NSWindowController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    static let width: CGFloat = 520
+    static let width = SettingsMetrics.width
 
     func select(_ pane: Pane) { tabs.selectedTabViewItemIndex = Pane.allCases.firstIndex(of: pane) ?? 0 }
 }
@@ -90,26 +91,46 @@ struct GeneralPane: View {
         if settings.pinTarget == .menuBar {
             return L("Your pins live under it. To hide it, keep pins in the notch instead, under Pins.")
         }
-        return L("Click it for pins, which open in the notch. When hidden, open Shotput again from Applications or Spotlight to get back here.")
+        if !NotchGeometry.hasHardwareNotch {
+            return L("Click it for pins, right-click for captures. It stays on this Mac, which has no notch to open pins from.")
+        }
+        return L("Click it for pins, right-click for captures. Hidden, open Shotput again to get back here.")
     }
 
     var body: some View {
-        Form {
-            if !canRecordScreen {
-                Section {
-                    LabeledContent {
+        SettingsPage {
+            Section {
+                HStack(spacing: 14) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 52, height: 52)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Shotput")
+                            .font(.title3.weight(.semibold))
+                        if canRecordScreen {
+                            StatusBadge(text: L("Ready to capture"))
+                        } else {
+                            StatusBadge(text: L("Screen Recording is off"), tint: Palette.Vivid.red)
+                        }
+                    }
+                    Spacer()
+                    if !canRecordScreen {
                         Button(L("Allow")) {
                             if !CGRequestScreenCaptureAccess() { ScreenPermission.openSettings() }
                         }
-                    } label: {
-                        Text(L("Screen Recording is off"))
-                        Text(L("Shotput needs it to take screenshots. Reopen Shotput after you turn it on."))
+                        .buttonStyle(.borderedProminent)
                     }
+                }
+                .padding(.vertical, 4)
+            } footer: {
+                if !canRecordScreen {
+                    Text(L("Shotput needs it to take screenshots. Reopen Shotput after you turn it on."))
+                        .settingsFooter()
                 }
             }
 
             Section(L("Startup")) {
-                Toggle(L("Open Shotput at login"), isOn: $opensAtLogin)
+                SettingsToggle(title: L("Open Shotput at login"), symbol: "power", tint: Palette.Vivid.green, isOn: $opensAtLogin)
                     .onChange(of: opensAtLogin) { _, enabled in
                         do {
                             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
@@ -117,44 +138,39 @@ struct GeneralPane: View {
                             opensAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
-                Toggle(isOn: $settings.showsMenuBarIcon) {
-                    Text(L("Show in the menu bar"))
-                    Text(menuBarIconDetail)
-                }
-                .disabled(settings.pinTarget == .menuBar)
+                SettingsToggle(title: L("Show in the menu bar"), subtitle: menuBarIconDetail, symbol: "menubar.rectangle", tint: Palette.Vivid.blue, isOn: $settings.showsMenuBarIcon)
+                    // Without a notch, the icon is how pins are opened at rest.
+                    .disabled(settings.pinTarget == .menuBar || (!NotchGeometry.hasHardwareNotch && settings.showsMenuBarIcon))
             }
 
             Section(L("Feedback")) {
-                Toggle(L("Play a sound on capture"), isOn: $settings.playsSound)
+                SettingsToggle(title: L("Play a sound on capture"), symbol: "speaker.wave.2.fill", tint: Palette.Vivid.pink, isOn: $settings.playsSound)
+                SettingsToggle(title: L("Flash what was captured"), subtitle: L("A brief shutter over the area, so you see it land"), symbol: "camera.aperture", tint: Palette.Vivid.yellow, isOn: $settings.showsFlash)
             }
 
-            Section(L("macOS screenshots")) {
-                Toggle(isOn: Binding(
-                    get: { settings.screenshotFolder != nil },
-                    set: { on in
-                        if on { MacScreenshotWatcher.shared.enable() } else { MacScreenshotWatcher.shared.disable() }
-                    }
-                )) {
-                    Text(L("Preview macOS screenshots"))
-                    Text(macScreenshotsDetail)
-                }
+            Section(L("macOS Screenshots")) {
+                SettingsToggle(
+                    title: L("Preview macOS screenshots"), subtitle: macScreenshotsDetail,
+                    symbol: "macwindow.on.rectangle", tint: Palette.Vivid.violet,
+                    isOn: Binding(
+                        get: { settings.screenshotFolder != nil },
+                        set: { on in
+                            if on { MacScreenshotWatcher.shared.enable() } else { MacScreenshotWatcher.shared.disable() }
+                        }
+                    )
+                )
+            }
+
+            Section(L("Automation")) {
+                SettingsToggle(title: L("Allow shotput:// links"), subtitle: L("Lets launchers and Logi Options+ Smart Actions start a capture."), symbol: "link", tint: Palette.Vivid.cyan, isOn: $settings.allowsLinks)
             }
 
             Section {
-                Toggle(isOn: $settings.allowsLinks) {
-                    Text(L("Allow shotput:// links"))
-                    Text(L("Lets launchers and Logi Options+ Smart Actions start a capture."))
-                }
-            }
-
-            Section {
-                LabeledContent(L("All settings")) {
+                SettingsRow(title: L("All settings"), subtitle: L("Shortcuts and preferences go back to how Shotput ships."), symbol: "arrow.counterclockwise", tint: Palette.Vivid.gray) {
                     Button(L("Reset…")) { confirmsReset = true }
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             canRecordScreen = CGPreflightScreenCaptureAccess()
         }
@@ -164,6 +180,19 @@ struct GeneralPane: View {
             Text(L("Shortcuts and preferences go back to how Shotput ships. Your save folder stays."))
         }
     }
+
+    private var macScreenshotsDetail: String {
+        guard settings.screenshotFolder != nil else {
+            return L("Shots from ⇧⌘3 and ⇧⌘4 get Shotput’s preview and go on the clipboard.")
+        }
+        if SystemScreenshots.savesToClipboard {
+            return L("macOS is set to copy screenshots, not save them. Choose a folder under ⇧⌘5 → Options.")
+        }
+        let folder = settings.screenshotFolder?.lastPathComponent ?? L("the folder")
+        return String(format: MacScreenshotWatcher.shared.holdsThumbnailOff
+            ? L("Watching %@. macOS’s thumbnail is off so ⇧⌘3 and ⇧⌘4 land at once.")
+            : L("Watching %@. macOS keeps its thumbnail while ⇧⌘5 is its own, so recordings are untouched."), folder)
+    }
 }
 
 // MARK: Capture
@@ -172,36 +201,39 @@ struct CapturePane: View {
     @ObservedObject private var settings = Settings.shared
 
     var body: some View {
-        Form {
-            Section(L("While selecting")) {
-                Toggle(L("Show the magnifier"), isOn: $settings.showsMagnifier)
-                Toggle(L("Snap to window edges"), isOn: $settings.snapsToEdges)
-                    .help(L("Hold ⌘ while selecting to place freely either way."))
-                Picker(L("Show the hint"), selection: $settings.selectionHints) {
-                    ForEach(Settings.Hints.allCases) { Text($0.title).tag($0) }
+        SettingsPage {
+            Section {
+                AfterCapturePicker(selection: $settings.afterCapture)
+            } header: {
+                Text(L("After a Capture"))
+            } footer: {
+                Text(L("The clipboard always has the capture the moment you let go, whichever you pick."))
+                    .settingsFooter()
+            }
+
+            if settings.afterCapture == .preview {
+                Section {
+                    CornerPicker(selection: $settings.previewCorner)
+                    SettingsRow(title: L("Stays on screen"), subtitle: L("Pointing at a preview holds it there"), symbol: "timer", tint: Palette.Vivid.orange) {
+                        SteppedSlider(values: Settings.previewDurations, value: $settings.previewDuration, label: Settings.durationTitle)
+                    }
+                } header: {
+                    Text(L("Previews"))
+                } footer: {
+                    Text(L("Several captures stack in the corner. Point at the stack to fan it out; click one to bring it to the front, and the front one to annotate it."))
+                        .settingsFooter()
                 }
             }
 
-            Section(L("After a capture")) {
-                Picker(L("Then"), selection: $settings.afterCapture) {
-                    ForEach(Settings.AfterCapture.allCases) { Text($0.title).tag($0) }
-                }
-                Picker(L("Preview appears"), selection: $settings.previewCorner) {
-                    ForEach(Settings.Corner.allCases) { Text($0.title).tag($0) }
-                }
-                .disabled(settings.afterCapture != .preview)
-                Picker(L("Preview stays"), selection: $settings.previewDuration) {
-                    Text(L("4 seconds")).tag(4.0)
-                    Text(L("6 seconds")).tag(6.0)
-                    Text(L("10 seconds")).tag(10.0)
-                    Text(L("Until dismissed")).tag(0.0)
-                }
-                .disabled(settings.afterCapture != .preview)
+            Section(L("While Selecting")) {
+                SettingsToggle(title: L("Show the magnifier"), subtitle: L("Pixel-exact edges, right beside the pointer"), symbol: "plus.magnifyingglass", tint: Palette.Vivid.blue, isOn: $settings.showsMagnifier)
+                SettingsToggle(title: L("Snap to window edges"), subtitle: L("Hold ⌘ while selecting to place freely either way."), symbol: "rectangle.dashed", tint: Palette.Vivid.orange, isOn: $settings.snapsToEdges)
+                SettingsPicker(title: L("Show the hint"), symbol: "text.bubble", tint: Palette.Vivid.gray, options: Settings.Hints.allCases, label: \.title, selection: $settings.selectionHints)
             }
 
             Section(L("Windows")) {
-                Toggle(L("Keep the window’s shadow"), isOn: $settings.windowShadow)
-                LabeledContent(L("Background")) {
+                SettingsToggle(title: L("Keep the window’s shadow"), symbol: "shadow", tint: Palette.Vivid.gray, isOn: $settings.windowShadow)
+                SettingsRow(title: L("Background"), subtitle: L("Behind a window you capture"), symbol: "photo", tint: Palette.Vivid.green) {
                     HStack(spacing: 8) {
                         if settings.windowBackground == .solid {
                             ColorPicker(L("Colour"), selection: Binding(
@@ -218,7 +250,7 @@ struct CapturePane: View {
                     }
                 }
                 if settings.windowBackground != .transparent {
-                    LabeledContent(L("Padding")) {
+                    SettingsRow(title: L("Padding"), symbol: "square.dashed", tint: Palette.Vivid.cyan) {
                         HStack {
                             Slider(value: $settings.windowPadding, in: 0...160, step: 8)
                                 .frame(width: 160)
@@ -231,29 +263,11 @@ struct CapturePane: View {
                 }
             }
 
-            Section(L("In captures")) {
-                Toggle(L("Include the pointer in screen captures"), isOn: $settings.showsPointer)
-                Toggle(L("Include Shotput’s own windows"), isOn: $settings.capturesOwnWindows)
-                    .help(L("Settings, the editor, and the guide show up in captures. Previews, the notch, and the selection are always left out."))
+            Section(L("In Captures")) {
+                SettingsToggle(title: L("Include the pointer in screen captures"), symbol: "cursorarrow", tint: Palette.Vivid.gray, isOn: $settings.showsPointer)
+                SettingsToggle(title: L("Include Shotput’s own windows"), subtitle: L("Settings, the editor, and the guide. Previews, the notch, and the selection are always left out."), symbol: "macwindow", tint: Palette.Vivid.violet, isOn: $settings.capturesOwnWindows)
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
-    }
-}
-
-extension GeneralPane {
-    private var macScreenshotsDetail: String {
-        guard settings.screenshotFolder != nil else {
-            return L("Shots from ⇧⌘3 and ⇧⌘4 get Shotput’s preview and go on the clipboard.")
-        }
-        if SystemScreenshots.savesToClipboard {
-            return L("macOS is set to copy screenshots, not save them. Choose a folder under ⇧⌘5 → Options.")
-        }
-        let folder = settings.screenshotFolder?.lastPathComponent ?? L("the folder")
-        return String(format: MacScreenshotWatcher.shared.holdsThumbnailOff
-            ? L("Watching %@. macOS’s thumbnail is off so ⇧⌘3 and ⇧⌘4 land at once.")
-            : L("Watching %@. macOS keeps its thumbnail while ⇧⌘5 is its own, so recordings are untouched."), folder)
     }
 }
 
@@ -263,36 +277,26 @@ struct EditorPane: View {
     @ObservedObject private var settings = Settings.shared
 
     var body: some View {
-        Form {
+        SettingsPage {
             Section {
-                Picker(L("Esc"), selection: $settings.escapeInEditor) {
-                    ForEach(Settings.EscapeInEditor.allCases) { Text($0.title).tag($0) }
-                }
-                Toggle(L("Copy (⌘C) also closes the editor"), isOn: $settings.editorClosesOnCopy)
+                SettingsPicker(title: L("Esc"), symbol: "escape", tint: Palette.Vivid.gray, options: Settings.EscapeInEditor.allCases, label: \.title, selection: $settings.escapeInEditor)
+                SettingsToggle(title: L("Copy (⌘C) also closes the editor"), symbol: "doc.on.doc.fill", tint: Palette.Vivid.blue, isOn: $settings.editorClosesOnCopy)
             } header: {
                 Text(L("Closing"))
             } footer: {
                 Text(L("Return always copies and closes. Esc first clears a selection or crop, then closes."))
-                    .foregroundStyle(.secondary)
+                    .settingsFooter()
             }
 
             Section(L("Drawing")) {
-                Toggle(isOn: $settings.recognizesShapes) {
-                    Text(L("Turn sketches into shapes"))
-                    Text(L("A pen stroke that looks like a line, arrow, rectangle, or circle becomes one. ⌘Z keeps the sketch."))
-                }
+                SettingsToggle(title: L("Turn sketches into shapes"), subtitle: L("A pen stroke that looks like a line, arrow, rectangle, or circle becomes one. ⌘Z keeps the sketch."), symbol: "scribble.variable", tint: Palette.Vivid.pink, isOn: $settings.recognizesShapes)
             }
 
-            Section(L("Text recognition")) {
-                Toggle(isOn: $settings.ocrKeepsLineBreaks) {
-                    Text(L("Keep line breaks"))
-                    Text(L("Off joins every line into one, which suits pasting a paragraph."))
-                }
-                Toggle(L("Correct spelling while reading"), isOn: $settings.ocrLanguageCorrection)
+            Section(L("Text Recognition")) {
+                SettingsToggle(title: L("Keep line breaks"), subtitle: L("Off joins every line into one, which suits pasting a paragraph."), symbol: "text.alignleft", tint: Palette.Vivid.green, isOn: $settings.ocrKeepsLineBreaks)
+                SettingsToggle(title: L("Correct spelling while reading"), symbol: "textformat.abc", tint: Palette.Vivid.orange, isOn: $settings.ocrLanguageCorrection)
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 }
 
@@ -303,33 +307,27 @@ struct OutputPane: View {
     @State private var showsTokens = false
 
     var body: some View {
-        Form {
+        SettingsPage {
             Section {
-                Toggle(isOn: $settings.copyAtPointSize) {
-                    Text(L("Use standard resolution"))
-                    Text(L("Halves the pixel size on Retina displays. Smaller images are quicker for an agent to read."))
-                }
+                SettingsToggle(title: L("Use standard resolution"), subtitle: L("Halves the pixel size on Retina displays. Smaller images are quicker for an agent to read."), symbol: "arrow.down.right.and.arrow.up.left", tint: Palette.Vivid.blue, isOn: $settings.copyAtPointSize)
             } header: {
-                Text(L("Clipboard and files"))
+                Text(L("Clipboard and Files"))
             }
 
             Section {
-                LabeledContent(L("Save folder")) {
+                SettingsRow(title: L("Save folder"), subtitle: settings.saveFolder?.path(percentEncoded: false).replacingOccurrences(of: NSHomeDirectory(), with: "~"), symbol: "folder.fill", tint: Palette.Vivid.cyan) {
                     HStack(spacing: Metrics.spacingS) {
-                        if let folder = settings.saveFolder {
-                            Text(folder.lastPathComponent).foregroundStyle(.secondary)
+                        if settings.saveFolder != nil {
                             Button(L("Clear")) { settings.setSaveFolder(nil) }
                         }
-                        Button(settings.saveFolder == nil ? L("Choose") : L("Change")) { chooseFolder() }
+                        Button(settings.saveFolder == nil ? L("Choose…") : L("Change…")) { chooseFolder() }
                     }
                 }
-                Toggle(L("Save every capture there"), isOn: $settings.savesEveryCapture)
+                SettingsToggle(title: L("Save every capture there"), symbol: "tray.and.arrow.down.fill", tint: Palette.Vivid.green, isOn: $settings.savesEveryCapture)
                     .disabled(settings.saveFolder == nil)
-                Picker(L("Format"), selection: $settings.saveFormat) {
-                    ForEach(Settings.SaveFormat.allCases) { Text($0.title).tag($0) }
-                }
+                SettingsPicker(title: L("Format"), symbol: "photo.fill", tint: Palette.Vivid.violet, options: Settings.SaveFormat.allCases, label: \.title, selection: $settings.saveFormat)
                 if settings.saveFormat != .png {
-                    LabeledContent(L("Quality")) {
+                    SettingsRow(title: L("Quality"), symbol: "slider.horizontal.3", tint: Palette.Vivid.orange) {
                         HStack {
                             Slider(value: $settings.jpegQuality, in: 0.4...1)
                                 .frame(width: 160)
@@ -344,7 +342,7 @@ struct OutputPane: View {
                 Text(L("Saving"))
             } footer: {
                 Text(L("The clipboard always gets a PNG. Without a save folder, Save asks where to put the file."))
-                    .foregroundStyle(.secondary)
+                    .settingsFooter()
             }
 
             Section {
@@ -364,7 +362,7 @@ struct OutputPane: View {
                 }
             } header: {
                 HStack {
-                    Text(L("File name"))
+                    Text(L("File Name"))
                     Spacer()
                     if settings.filenameTemplate != Settings.defaultTemplate {
                         Button(L("Reset")) { settings.filenameTemplate = Settings.defaultTemplate }
@@ -374,8 +372,6 @@ struct OutputPane: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 
     /// Kept in a popover so the tab stays the same height whether or not you need it.
@@ -433,6 +429,24 @@ struct OutputPane: View {
 
 // MARK: Shortcuts
 
+extension HotAction {
+    /// The action's icon in Settings.
+    var settingsSymbol: (name: String, tint: Color) {
+        switch self {
+        case .area: ("rectangle.dashed", Palette.Vivid.blue)
+        case .areaAnnotate: ("pencil.and.outline", Palette.Vivid.pink)
+        case .window: ("macwindow", Palette.Vivid.violet)
+        case .screen: ("display", Palette.Vivid.cyan)
+        case .annotateLast: ("clock.arrow.circlepath", Palette.Vivid.orange)
+        case .repeatArea: ("arrow.clockwise", Palette.Vivid.green)
+        case .text: ("text.viewfinder", Palette.Vivid.yellow)
+        case .annotateClipboard: ("doc.on.clipboard.fill", Palette.Vivid.gray)
+        case .toolbar: ("menubar.dock.rectangle", Palette.Vivid.gray)
+        case .pinFiles: ("pin.fill", Palette.Vivid.red)
+        }
+    }
+}
+
 struct ShortcutsPane: View {
     @ObservedObject private var settings = Settings.shared
     @State private var systemOwnsKeys = false
@@ -451,41 +465,31 @@ struct ShortcutsPane: View {
     }
 
     var body: some View {
-        Form {
+        SettingsPage {
             Section {
                 // The pin shortcut lives with the rest of pinning, on the Pins tab.
                 ForEach(HotAction.allCases.filter { $0 != .pinFiles }) { action in
-                    LabeledContent {
+                    SettingsRow(title: action.title, subtitle: action.detail, symbol: action.settingsSymbol.name, tint: action.settingsSymbol.tint) {
                         ShortcutRecorder(shortcut: Binding(
                             get: { settings.shortcuts[action] ?? .none },
                             set: { settings.shortcuts[action] = $0 }
                         ))
                         .frame(width: 150, height: 24)
-                    } label: {
-                        Text(action.title)
-                            .help(action.detail)
                     }
                 }
             } footer: {
-                Text(L("Click a shortcut, then press the new keys. Delete clears it, Esc keeps it."))
-                    .foregroundStyle(.secondary)
+                Text(L("Click a shortcut, then press the new keys. Delete clears it, Esc keeps it. Pressing a capture shortcut again while selecting backs out."))
+                    .settingsFooter()
             }
 
-            Section {
-                Toggle(isOn: Binding(get: { settings.usesScreenshotKeys }, set: { settings.setUsesScreenshotKeys($0) })) {
-                    Text(L("Use ⇧⌘3 and ⇧⌘4"))
-                    Text(L("Screen and area, on the keys macOS uses for screenshots."))
-                }
-                Toggle(isOn: Binding(get: { settings.usesCaptureBar }, set: { settings.setUsesCaptureBar($0) })) {
-                    Text("Open the capture bar with ⇧⌘5")
-                    Text("Shotput’s captures beside macOS’s own recorder. Off leaves ⇧⌘5 to macOS.")
-                }
+            Section(L("macOS Keys")) {
+                SettingsToggle(title: L("Use ⇧⌘3 and ⇧⌘4"), subtitle: L("Screen and area, on the keys macOS uses for screenshots."), symbol: "command", tint: Palette.Vivid.blue,
+                               isOn: Binding(get: { settings.usesScreenshotKeys }, set: { settings.setUsesScreenshotKeys($0) }))
+                SettingsToggle(title: L("Open the capture bar with ⇧⌘5"), subtitle: L("Shotput’s captures beside macOS’s own recorder. Off leaves ⇧⌘5 to macOS."), symbol: "menubar.dock.rectangle", tint: Palette.Vivid.violet,
+                               isOn: Binding(get: { settings.usesCaptureBar }, set: { settings.setUsesCaptureBar($0) }))
                 if (settings.usesScreenshotKeys && systemOwnsKeys) || (settings.usesCaptureBar && systemOwnsFive) {
-                    LabeledContent {
+                    SettingsRow(title: L("macOS still answers these keys"), subtitle: String(format: L("Under Screenshots, turn off %@."), keysToTurnOff), symbol: "exclamationmark.triangle.fill", tint: Palette.Vivid.yellow) {
                         Button(L("Open Keyboard Shortcuts")) { SystemScreenshots.openKeyboardShortcuts() }
-                    } label: {
-                        Text(L("macOS still answers these keys"))
-                        Text(String(format: L("Under Screenshots, turn off %@."), keysToTurnOff))
                     }
                 }
             }
@@ -496,16 +500,11 @@ struct ShortcutsPane: View {
             }
 
             Section {
-                LabeledContent {
+                SettingsRow(title: L("Use a mouse button"), subtitle: L("Logi Options+ can press any of these shortcuts for you."), symbol: "computermouse.fill", tint: Palette.Vivid.green) {
                     Button(L("Show Me How")) { (NSApp.delegate as? AppDelegate)?.showOnboarding(.mouse) }
-                } label: {
-                    Text(L("Use a mouse button"))
-                    Text(L("Logi Options+ can press any of these shortcuts for you."))
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 }
 
@@ -515,67 +514,68 @@ struct PinsPane: View {
     @ObservedObject private var settings = Settings.shared
     @State private var canPressKeys = CGPreflightPostEventAccess()
 
-        /// Where a drag goes, and where pins open afterwards, so the notch and the menu bar icon
+    /// Where the island goes matters only with another display, or no notch at all.
+    private var showsPlacement: Bool {
+        NSScreen.screens.count > 1 || !NotchGeometry.hasHardwareNotch
+    }
+
+    /// Where a drag goes, and where pins open afterwards, so the notch and the menu bar icon
     /// never seem to be two different trays.
     private var pinsFooter: String {
         if settings.pinTarget == .menuBar {
             return L("Start a drag and a card drops out under Shotput’s menu bar icon to take it. Click the icon to see your pins. It stays in the menu bar while pins live there.")
         }
-        let drag = NotchGeometry.hasHardwareNotch
-            ? L("Start a drag and the notch grows a pin; bring it close and it opens to take the drop.")
-            : L("Start a drag and the top of the screen grows a pin; bring it close and it opens to take the drop.")
+        let drag = L("Start a drag and the notch grows a pin; bring it close and it opens to take the drop.")
+        let island = L("On a display without a notch, a Dynamic Island in the menu bar does the same: out of sight until it’s needed.")
         let open = settings.showsMenuBarIcon
-            ? (NotchGeometry.hasHardwareNotch ? L("Click the notch, or Shotput’s menu bar icon, to see your pins.") : L("Click the top of the screen, or Shotput’s menu bar icon, to see your pins."))
-            : (NotchGeometry.hasHardwareNotch ? L("Click the notch to see your pins.") : L("Click the top of the screen to see your pins."))
-        return drag + " " + open
+            ? L("Click the notch, or Shotput’s menu bar icon, to see your pins.")
+            : L("Click the notch to see your pins.")
+        return [drag, open, showsPlacement ? island : nil].compactMap { $0 }.joined(separator: " ")
     }
 
     var body: some View {
-        Form {
+        SettingsPage {
             Section {
-                Picker(L("Drag to pin at"), selection: $settings.pinTarget) {
-                    ForEach(Settings.PinTarget.allCases) { Text($0.title).tag($0) }
-                }
-                Toggle(isOn: $settings.pinsDraggedFiles) {
-                    Text(L("Take files dragged in any app"))
-                    Text(L("Off, only previews open the drop target."))
-                }
+                PinTargetPicker(selection: $settings.pinTarget)
             } header: {
-                Text(L("Dragging"))
+                Text(L("Where Pins Live"))
             } footer: {
                 Text(pinsFooter)
-                    .foregroundStyle(.secondary)
+                    .settingsFooter()
+            }
+
+            if settings.pinTarget == .notch {
+                Section(NotchGeometry.hasHardwareNotch ? L("Notch") : L("Dynamic Island")) {
+                    if showsPlacement {
+                        SettingsPicker(title: L("Show on"), subtitle: L("Displays without a notch get a Dynamic Island in the menu bar"), symbol: "display.2", tint: Palette.Vivid.blue,
+                                       options: Settings.Placement.allCases, label: \.title, selection: $settings.islandPlacement)
+                    }
+                    SettingsToggle(title: L("Show pins beside the notch"), subtitle: L("Shotput’s icon and how many are waiting. Off, the notch stays bare until a drag."), symbol: "pin.fill", tint: Palette.Vivid.red, isOn: $settings.showsPinBadge)
+                }
+            }
+
+            Section(L("Dragging")) {
+                SettingsToggle(title: L("Take files dragged in any app"), subtitle: L("Off, only previews open the drop target."), symbol: "hand.draw.fill", tint: Palette.Vivid.orange, isOn: $settings.pinsDraggedFiles)
             }
 
             Section {
-                LabeledContent {
+                SettingsRow(title: HotAction.pinFiles.title, subtitle: L("Select files in Finder, press it, and they fly to your pins."), symbol: "pin.fill", tint: Palette.Vivid.red) {
                     ShortcutRecorder(shortcut: Binding(
                         get: { settings.shortcuts[.pinFiles] ?? .none },
                         set: { settings.shortcuts[.pinFiles] = $0 }
                     ))
                     .frame(width: 150, height: 24)
-                } label: {
-                    Text(HotAction.pinFiles.title)
-                    Text(L("Select files in Finder, press it, and they fly to your pins."))
                 }
-                Toggle(isOn: $settings.cutsInFinder) {
-                    Text(L("⌘X cuts files in Finder"))
-                    Text(L("Then ⌘V moves them, with Finder’s own Move Item Here."))
-                }
+                SettingsToggle(title: L("⌘X cuts files in Finder"), subtitle: L("Then ⌘V moves them, with Finder’s own Move Item Here."), symbol: "scissors", tint: Palette.Vivid.gray, isOn: $settings.cutsInFinder)
                 if !canPressKeys && (settings.cutsInFinder || settings.shortcuts[.pinFiles]?.isSet == true) {
-                    LabeledContent {
+                    SettingsRow(title: L("Shotput can’t press keys yet"), subtitle: L("Both press Copy in Finder for you. Turn Shotput on under Accessibility."), symbol: "exclamationmark.triangle.fill", tint: Palette.Vivid.yellow) {
                         Button(L("Open Accessibility")) { CGRequestPostEventAccess(); SystemSettings.openAccessibility() }
-                    } label: {
-                        Text(L("Shotput can’t press keys yet"))
-                        Text(L("Both press Copy in Finder for you. Turn Shotput on under Accessibility."))
                     }
                 }
             } header: {
                 Text(L("Finder"))
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             canPressKeys = CGPreflightPostEventAccess()
         }
@@ -605,31 +605,46 @@ struct AboutPane: View {
     }
 
     var body: some View {
-        VStack(spacing: Metrics.spacingM) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 88, height: 88)
-            VStack(spacing: Metrics.spacingXS) {
-                Text("Shotput").font(.title2.weight(.semibold))
-                Text(String(format: L("Version %@"), version)).foregroundStyle(.secondary).textSelection(.enabled)
+        SettingsPage {
+            Section {
+                HStack(spacing: 14) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 64, height: 64)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Shotput")
+                            .font(.title2.weight(.semibold))
+                        Text(String(format: L("Version %@"), version))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                        Text(L("Press, drag, paste into your agent."))
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Button(L("Check for Updates")) { updates.checkNow() }
+                        .disabled(!updates.canCheck)
+                }
+                .padding(.vertical, 6)
             }
-            Text(L("Free and open source under the MIT licence. Shotput itself has no network access. Updates come through a separate helper that only fetches signed releases from GitHub."))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: 400)
-                .fixedSize(horizontal: false, vertical: true)
-            Toggle(L("Install updates automatically"), isOn: Binding(get: { updates.isAutomatic }, set: { updates.isAutomatic = $0 }))
-                .toggleStyle(.checkbox)
-            HStack(spacing: Metrics.spacingS) {
-                Button(L("Check for Updates")) { updates.checkNow() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!updates.canCheck)
-                Button(L("Source Code")) { NSWorkspace.shared.open(Self.repository) }
-                Button(L("Report an Issue")) { NSWorkspace.shared.open(Self.repository.appendingPathComponent("issues/new")) }
+
+            Section(L("Updates")) {
+                SettingsToggle(
+                    title: L("Install updates automatically"),
+                    subtitle: L("Only signed releases, fetched by a separate helper. Shotput itself has no network access."),
+                    symbol: "arrow.down.circle.fill", tint: Palette.Vivid.blue,
+                    isOn: Binding(get: { updates.isAutomatic }, set: { updates.isAutomatic = $0 })
+                )
+            }
+
+            Section(L("Open Source")) {
+                SettingsRow(title: L("Source code"), subtitle: L("Free under the MIT licence"), symbol: "chevron.left.forwardslash.chevron.right", tint: Palette.Vivid.gray) {
+                    Button(L("Open")) { NSWorkspace.shared.open(Self.repository) }
+                }
+                SettingsRow(title: L("Report an issue"), subtitle: L("Something broken, or something missing"), symbol: "ladybug.fill", tint: Palette.Vivid.red) {
+                    Button(L("Open")) { NSWorkspace.shared.open(Self.repository.appendingPathComponent("issues/new")) }
+                }
             }
         }
-        .padding(.vertical, 36)
-        .padding(.horizontal, Metrics.spacingL)
-        .frame(maxWidth: .infinity)
     }
 }

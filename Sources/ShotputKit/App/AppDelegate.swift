@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
 
         HotKeyCenter.reload()
+        ScreenCapturer.warmUp()
         NotchDrop.shared.start()
         FinderBridge.shared.start()
         Updates.shared.start()
@@ -175,6 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if !FloatingShots.shared.isEmpty {
             menu.addItem(withTitle: L("Close All Floating Screenshots"), action: #selector(closeFloats), keyEquivalent: "").target = self
         }
+        if !PreviewPanelController.shared.isEmpty {
+            menu.addItem(withTitle: L("Close All Previews"), action: #selector(closePreviews), keyEquivalent: "").target = self
+        }
         if shortcuts[.toolbar]?.isSet == true { add(.toolbar, #selector(openCaptureBar)) }
         menu.addItem(.separator())
         let settings = menu.addItem(withTitle: L("Settings…"), action: #selector(showSettings(_:)), keyEquivalent: ",")
@@ -226,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         FloatingShots.shared.float(capture)
     }
     @objc private func closeFloats() { FloatingShots.shared.closeAll() }
+    @objc private func closePreviews() { PreviewPanelController.shared.dismissAll() }
 
     // MARK: Settings and the welcome guide
 

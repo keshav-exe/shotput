@@ -46,12 +46,17 @@ func settingsHarness(to path: String) {
     settings.windowBackground = .solid
     defer { settings.windowBackground = savedBackground }
 
+    // Panes are one fixed size and scroll; drawn tall here so the whole of each can be seen.
+    let fixedHeight = SettingsMetrics.height
+    SettingsMetrics.height = 1300
     for pane in SettingsWindowController.Pane.allCases {
-        let view = pane.view.frame(width: SettingsWindowController.width).fixedSize(horizontal: false, vertical: true)
-        let size = render(view.background(Color(nsColor: .windowBackgroundColor)), name: "settings-\(pane.title.lowercased())",
-                          width: SettingsWindowController.width, appearance: .darkAqua)
-        expect(size.height <= tallest, "\(pane.title) tab is \(Int(size.height))pt tall")
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            _ = render(pane.view.background(Color(nsColor: .windowBackgroundColor)), name: "settings-\(pane.title.lowercased())",
+                       width: SettingsWindowController.width, appearance: appearance)
+        }
     }
+    SettingsMetrics.height = fixedHeight
+    expect(fixedHeight <= tallest, "Settings panes are \(Int(fixedHeight))pt tall")
 
     for appearance in [NSAppearance.Name.aqua, .darkAqua] {
         _ = render(CaptureBarView(defaultMode: .area) { _ in }.background(Color.gray), name: "capture-bar", width: nil, appearance: appearance)

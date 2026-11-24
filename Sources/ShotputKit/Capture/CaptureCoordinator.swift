@@ -12,7 +12,17 @@ final class CaptureCoordinator {
     /// The last area selected, in global Cocoa coordinates, for L("Repeat last area").
     private var lastArea: CGRect?
     private var overlay: SelectionOverlay?
-    private var isStarting = false
+    /// When the current capture began starting, while it is still on its way to the screen.
+    private var startedAt: Date?
+    /// When the last selection closed. A shortcut that fires twice, as some mouse utilities do
+    /// on press and release, would otherwise open a second selection over the finished one.
+    private var overlayClosedAt = Date.distantPast
+
+    private var isStarting: Bool {
+        // ScreenCaptureKit can stall; never let one stuck request swallow every shortcut after it.
+        guard let startedAt else { return false }
+        return Date().timeIntervalSince(startedAt) < 4
+    }
 
     /// - Parameters:
     ///   - annotate: Open the editor afterwards, whatever the "after capture" preference says.
@@ -23,14 +33,19 @@ final class CaptureCoordinator {
             overlay.cancel()
             return
         }
-        guard !isStarting, ScreenPermission.ensure() else { return }
-        isStarting = true
+        guard !isStarting, Date().timeIntervalSince(overlayClosedAt) > 0.35, ScreenPermission.ensure() else { return }
+        let token = Date()
+        startedAt = token
         let previousApp = NSWorkspace.shared.frontmostApplication
 
         Task {
-            defer { isStarting = false }
+            defer { if startedAt == token { startedAt = nil } }
             do {
-                let content = try await ScreenCapturer.shareableContent()
+                // Shotput's own windows in the still need the window list as it is now.
+                let content = Settings.shared.capturesOwnWindows
+                    ? try await ScreenCapturer.shareableContent()
+                    : try await ScreenCapturer.displayContent()
+                guard startedAt == token else { return }
                 if mode == .screen {
                     guard let shot = try await ScreenCapturer.captureDisplays(
                         content, only: NSScreen.underMouse, showsCursor: Settings.shared.showsPointer
@@ -42,12 +57,15 @@ final class CaptureCoordinator {
                 }
 
                 let shots = try await ScreenCapturer.captureDisplays(content)
-                guard !shots.isEmpty else { return }
+                guard !shots.isEmpty, startedAt == token, overlay == nil else { return }
                 let overlay = SelectionOverlay(mode: mode == .window ? .window : .area)
                 self.overlay = overlay
+                // A window capture needs today's window list; fetch it while the pointer moves.
+                let windowContent = Task { try await ScreenCapturer.shareableContent() }
                 overlay.present(shots: shots, windows: ScreenCapturer.onScreenWindows()) { outcome in
                     self.overlay = nil
-                    self.finish(outcome, content: content, annotate: annotate, readText: readText, previousApp: previousApp)
+                    self.overlayClosedAt = Date()
+                    self.finish(outcome, content: windowContent, annotate: annotate, readText: readText, previousApp: previousApp)
                 }
             } catch {
                 ScreenPermission.explain()
@@ -56,12 +74,13 @@ final class CaptureCoordinator {
     }
 
     private func finish(
-        _ outcome: SelectionOverlay.Outcome, content: SCShareableContent, annotate: Bool, readText: Bool,
+        _ outcome: SelectionOverlay.Outcome, content: Task<SCShareableContent, Error>, annotate: Bool, readText: Bool,
         previousApp: NSRunningApplication?
     ) {
         // Hand focus back, so a paste lands where the user was working. The editor keeps it instead.
         let opensEditor = !readText && (annotate || Settings.shared.afterCapture == .editor)
         if case .cancelled = outcome {
+            content.cancel()
             previousApp?.activate()
             return
         }
@@ -72,6 +91,7 @@ final class CaptureCoordinator {
         case .cancelled:
             break
         case let .area(rect, shot):
+            content.cancel()
             guard let image = shot.crop(rect) else { return }
             let origin = shot.screen.frame.origin
             lastArea = rect.offsetBy(dx: origin.x, dy: origin.y)
@@ -87,7 +107,8 @@ final class CaptureCoordinator {
                 // Prefer the window on its own. Fall back to the still if it has gone away.
                 let capture: Capture
                 let settings = Settings.shared
-                if let result = try? await ScreenCapturer.captureWindow(info.id, in: content, includesShadow: settings.windowShadow) {
+                if let content = try? await content.value,
+                   let result = try? await ScreenCapturer.captureWindow(info.id, in: content, includesShadow: settings.windowShadow) {
                     if let style = settings.windowBackdrop {
                         let wallpaper = style.fill == .wallpaper ? await Backdrop.wallpaper(for: shot.screen) : nil
                         let framed = Backdrop.compose(
@@ -132,7 +153,7 @@ final class CaptureCoordinator {
 
         let savesToFolder = settings.savesEveryCapture && settings.resolvedSaveFolder() != nil
         if settings.playsSound { CaptureSound.play() }
-        if let rect = capture.screenRect { CaptureFlash.show(over: rect) }
+        if settings.showsFlash, let rect = capture.screenRect { CaptureFlash.show(over: rect) }
         NotificationCenter.default.post(name: .shotputDidCapture, object: nil)
 
         // The clipboard is filled straight away in every mode, so pasting never waits on a choice.
@@ -142,6 +163,7 @@ final class CaptureCoordinator {
             DispatchQueue.main.async {
                 Output.copyToClipboard(png.data)
                 if let file { Output.save(file, relativeTo: nil) { _ in } }
+                capture.compact()
             }
         }
 
@@ -150,6 +172,8 @@ final class CaptureCoordinator {
         case .editor: EditorManager.shared.open(capture)
         case .clipboard: break
         }
+        // Ready for the next one before it is asked for.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { ScreenCapturer.warmUp() }
     }
 
     /// A screenshot macOS took and saved itself. It already made its sound and flash, and its
@@ -159,7 +183,10 @@ final class CaptureCoordinator {
         NotificationCenter.default.post(name: .shotputDidCapture, object: nil)
         DispatchQueue.global(qos: .userInitiated).async {
             guard let png = capture.png() else { return }
-            DispatchQueue.main.async { Output.copyToClipboard(png.data) }
+            DispatchQueue.main.async {
+                Output.copyToClipboard(png.data)
+                capture.compact()
+            }
         }
         switch Settings.shared.afterCapture {
         case .preview: PreviewPanelController.shared.show(capture)
@@ -178,12 +205,13 @@ final class CaptureCoordinator {
             return
         }
         guard ScreenPermission.ensure() else { return }
-        isStarting = true
+        let token = Date()
+        startedAt = token
         let appName = NSWorkspace.shared.frontmostApplication?.localizedName
         Task {
-            defer { isStarting = false }
+            defer { if startedAt == token { startedAt = nil } }
             do {
-                let content = try await ScreenCapturer.shareableContent()
+                let content = try await ScreenCapturer.displayContent()
                 guard let shot = try await ScreenCapturer.captureDisplays(content, only: screen).first else { return }
                 let local = area.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY)
                     .intersection(CGRect(origin: .zero, size: screen.frame.size))
@@ -202,7 +230,7 @@ final class CaptureCoordinator {
             annotateClipboard()
             return
         }
-        PreviewPanelController.shared.dismiss()
+        PreviewPanelController.shared.dismiss(lastCapture)
         EditorManager.shared.open(lastCapture)
     }
 

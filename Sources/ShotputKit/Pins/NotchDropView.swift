@@ -31,6 +31,7 @@ struct NotchDropView: View {
                 if model.isMenuBar { MenuBarCard(model: model) } else { island }
             }
             .frame(width: size.width, height: size.height, alignment: .top)
+            .padding(.top, model.geometry?.topInset ?? 0)
 
             // Clove is wearing its own ears: the pins sit just past them, like a second live activity.
             if model.showsSideBubble, model.isResting, !model.isMenuBar {
@@ -45,7 +46,7 @@ struct NotchDropView: View {
             .animation(animation, value: size)
             .animation(animation, value: model.showsSideBubble)
             // Local, not preferred: in the guide's scene this mustn't turn the whole window dark.
-            .modifier(DarkOnNotch(isOn: model.isHardware))
+            .modifier(DarkOnNotch(isOn: !model.isMenuBar))
     }
 
     /// Springs in the manner of the Dynamic Island: panels open with a little life, the ears and
@@ -61,7 +62,7 @@ struct NotchDropView: View {
     }
 
     private var shape: NotchShape {
-        NotchShape(topRadius: model.shoulderRadius, bottomRadius: model.bottomRadius)
+        NotchShape(topRadius: model.shoulderRadius, bottomRadius: model.bottomRadius, isFloating: model.isFloating)
     }
 
     private var island: some View {
@@ -71,24 +72,27 @@ struct NotchDropView: View {
                 .padding(.horizontal, model.shoulderRadius)
                 .clipShape(shape)
         }
-        // On a notch the closed island is the notch. Elsewhere there is nothing until a drag.
+        // On a notch the closed island is the notch. Elsewhere it waits out of sight.
         .opacity(model.phase == .hidden && !model.isHardware ? 0 : 1)
+        .scaleEffect(model.phase == .hidden && model.isFloating && !reduceMotion ? 0.82 : 1, anchor: .top)
         .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
     private var background: some View {
-        if model.isHardware, model.isPanel {
+        if model.isHardware || model.isFloating, model.isPanel {
             // Solid black where the island meets the notch, so the camera cutout still
-            // disappears, then easing into Liquid Glass below it.
-            let band = min(0.9, model.notchSize.height / max(model.size.height, 1))
+            // disappears, then easing into Liquid Glass below it. The floating island meets no
+            // camera, so it needn't start solid.
+            let band = model.isFloating ? 0 : min(0.9, model.notchSize.height / max(model.size.height, 1))
+            let top = model.isFloating ? 0.78 : 1
             ZStack {
                 Color.clear
                     .glassEffect(.regular, in: shape)
                 shape.fill(LinearGradient(
                     stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black, location: band),
+                        .init(color: .black.opacity(top), location: 0),
+                        .init(color: .black.opacity(top), location: band),
                         .init(color: .black.opacity(0.72), location: min(1, band + 0.22)),
                         .init(color: .black.opacity(0.58), location: 1),
                     ],
@@ -97,8 +101,9 @@ struct NotchDropView: View {
                 ))
             }
             .shadow(color: .black.opacity(0.32), radius: 22, y: 10)
-        } else if model.isHardware {
+        } else if model.isHardware || model.isFloating {
             shape.fill(.black)
+                .shadow(color: .black.opacity(model.isFloating ? 0.22 : 0), radius: 6, y: 2)
         } else {
             Color.clear
                 .glassEffect(.regular, in: shape)
@@ -108,19 +113,20 @@ struct NotchDropView: View {
 
     @ViewBuilder
     private var content: some View {
-        let band = model.notchSize.height
+        let rest = model.notchSize.height
+        let band = model.band
         switch model.phase {
         case .hidden:
             // The bare notch, which opens the tray on a click.
             Color.clear
-                .frame(height: band)
+                .frame(height: rest)
                 .contentShape(.rect)
                 .onTapGesture { model.openTray() }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityLabel(L("Show pins"))
         case .badge:
             Badge(model: model)
-                .frame(height: band)
+                .frame(height: rest)
                 .contentShape(.rect)
                 .onTapGesture { model.openTray() }
                 .transition(reduceMotion ? .opacity : .ears)
@@ -135,7 +141,7 @@ struct NotchDropView: View {
             .transition(.contentReveal)
         case .armed:
             Ears(model: model)
-                .frame(height: band)
+                .frame(height: rest)
                 .transition(reduceMotion ? .opacity : .ears)
         case .near, .targeted:
             VStack(spacing: 0) {

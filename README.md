@@ -85,6 +85,7 @@ Launchers and Smart Actions can also open links: `shotput://area`, `shotput://an
 - The screen freezes while you select, so open menus and hover states stay put.
 - The crosshair snaps to window edges and corners, the menu bar, and the Dock. The guides turn
   blue when snapped. Hold ⌘ to place freely.
+- Click without dragging to capture the window under the pointer.
 - Space switches between area and window. Picking a window shows a pointing hand, and the
   window under it gets a bright outline. While dragging, hold Space to move the selection and
   Shift to keep it square.
@@ -93,12 +94,17 @@ Launchers and Smart Actions can also open links: `shotput://area`, `shotput://an
 ## After a capture
 
 The image is on the clipboard straight away, so you can paste without waiting. A small preview
-then appears in the screen corner nearest your pointer that does not cover what you captured.
+then lands in the corner you pick under Settings → Capture (bottom right to start with).
 
 - Click it to annotate.
 - Drag it into any app as a file, or up to the notch to pin it.
 - Float it: the screenshot stays on screen above every window until you close it.
-- Ignore it and it leaves after a few seconds. It never takes focus.
+- Right-click for the rest, including closing every preview at once.
+- Ignore it and it leaves on its own, after anything from 2 seconds to a minute, or never: you
+  choose under Settings → Capture. Pointing at it holds it. It never takes focus.
+
+Take several in a row and they stack in the corner, the newest in front. Point at the stack and
+it fans out so each one is in reach; click one to bring it to the front.
 
 ### Floating screenshots
 
@@ -138,7 +144,9 @@ separately.
 Pin a preview, or any file. Start dragging and the notch grows a pin; bring the drag up to it
 and it opens into a glass well. Let go to pin. It works for files from Finder, attachments from
 Mail, photos from Photos, and pictures from a web page, as well as Shotput's own previews. Macs
-without a notch get the same island at the top centre of the menu bar. Settings > Pins turns
+without a notch, and external displays, get a Dynamic Island: a black pill in the menu bar, out
+of sight until it has something to show. Settings → Pins → Show on keeps it on the built-in
+display or moves it to whichever display you're using. Settings > Pins turns
 off the notch for files dragged in other apps; previews can always be dragged there, and the pin
 button on a preview still works.
 

@@ -10,7 +10,16 @@ import UniformTypeIdentifiers
 func notchHarness(to path: String) {
     let base = (path as NSString).deletingPathExtension
     guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first,
-          let geometry = NotchGeometry(screen) else { fatalError("No screen") }
+          var geometry = NotchGeometry(screen) else { fatalError("No screen") }
+    // SHOTPUT_FLOATING=1 draws the Dynamic Island a screen without a notch gets, away from the
+    // camera so it can be seen on a notched one too.
+    if ProcessInfo.processInfo.environment["SHOTPUT_FLOATING"] == "1" {
+        let bar = max(screen.frame.maxY - screen.visibleFrame.maxY, 24)
+        geometry = NotchGeometry(
+            screenFrame: screen.frame, size: CGSize(width: NotchGeometry.pillGap, height: min(bar, 40) - 4),
+            midX: screen.frame.minX + screen.frame.width * 0.3, isHardware: false, topInset: 2
+        )
+    }
 
     // Run from the package, the harness has no bundle icon; the ears should show Shotput's.
     if let icon = NSImage(contentsOfFile: "Resources/AppIcon.icns") { AppMark.image = icon }
@@ -20,7 +29,7 @@ func notchHarness(to path: String) {
     let window = NotchWindow()
     window.contentView = NotchDropHostingView(model: model)
     window.setFrame(geometry.windowFrame, display: true)
-    window.appearance = geometry.isHardware ? NSAppearance(named: .darkAqua) : nil
+    window.appearance = NSAppearance(named: .darkAqua)
     window.orderFrontRegardless()
 
     // A mix of kinds in the tray, so its filters show. Unpinned again at the end.

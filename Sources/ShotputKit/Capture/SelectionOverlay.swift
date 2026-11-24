@@ -45,17 +45,32 @@ final class SelectionOverlay {
             views.append(view)
         }
 
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         let mouse = NSEvent.mouseLocation
+        var keyed = false
         for (panel, view) in zip(panels, views) {
             panel.orderFrontRegardless()
-            if NSMouseInRect(mouse, panel.frame, false) {
+            if !keyed, NSMouseInRect(mouse, panel.frame, false) {
+                keyed = true
                 panel.makeKeyAndOrderFront(nil)
                 panel.makeFirstResponder(view)
                 view.pointerMoved(to: view.convert(panel.convertPoint(fromScreen: mouse), from: nil))
             }
         }
+        // The pointer can sit on a display with no still (one that just appeared): some panel
+        // must still hold the keyboard, or Esc would have nowhere to go.
+        if !keyed, let panel = panels.first, let view = views.first {
+            panel.makeKeyAndOrderFront(nil)
+            panel.makeFirstResponder(view)
+        }
+        // Esc always backs out, even if another app kept the keyboard as the selection opened.
+        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return }
+            MainActor.assumeIsolated { self?.cancel() }
+        }
     }
+
+    private var escapeMonitor: Any?
 
     func toggleMode() {
         mode = mode == .area ? .window : .area
@@ -65,6 +80,8 @@ final class SelectionOverlay {
     func finish(_ outcome: Outcome) {
         guard let completion else { return }
         self.completion = nil
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
         panels.forEach { $0.orderOut(nil) }
         panels.removeAll()
         views.removeAll()
@@ -223,7 +240,7 @@ final class OverlayView: NSView {
 
         if showHint {
             let text = CATextLayer()
-            let string = L("Drag to capture an area. Space picks a window. Esc cancels.")
+            let string = L("Drag to capture an area, or click a window. Esc cancels.")
             let font = NSFont.systemFont(ofSize: 13, weight: .medium)
             let width = ceil((string as NSString).size(withAttributes: [.font: font]).width)
             text.string = string
@@ -482,11 +499,16 @@ final class OverlayView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         if overlay.mode == .window {
-            if let hovered { overlay.finish(.window(hovered, shot: shot)) }
+            if let hovered { overlay.finish(.window(global(hovered), shot: shot)) }
             return
         }
         defer { anchor = nil; isMovingSelection = false }
         guard let rect = selection?.integral.intersection(bounds), rect.width >= 4, rect.height >= 4 else {
+            // A click with no drag takes the window under it, clean corners and all.
+            if let window = windows.first(where: { $0.frame.contains(pointer) }) {
+                overlay.finish(.window(global(window), shot: shot))
+                return
+            }
             selection = nil
             refresh()
             setPointerChromeHidden(false)
@@ -496,6 +518,12 @@ final class OverlayView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) { overlay.cancel() }
+
+    /// The view keeps windows in its own coordinates; the capture wants them in global ones.
+    private func global(_ window: WindowInfo) -> WindowInfo {
+        let origin = shot.screen.frame.origin
+        return WindowInfo(id: window.id, frame: window.frame.offsetBy(dx: origin.x, dy: origin.y), ownerName: window.ownerName)
+    }
 
     // MARK: Keyboard
 

@@ -40,6 +40,9 @@ final class Settings: ObservableObject {
         static let pinsDraggedFiles = "pinsDraggedFiles"
         static let pinTarget = "pinTarget"
         static let cutsInFinder = "cutsInFinder"
+        static let islandPlacement = "islandPlacement"
+        static let showsPinBadge = "showsPinBadge"
+        static let showsFlash = "showsFlash"
     }
 
     /// Where a drag goes to be pinned. The notch, unless another app already lives there.
@@ -66,18 +69,42 @@ final class Settings: ObservableObject {
         }
     }
 
+    /// The corner previews gather in. Fixed, so they're always where you left them.
     enum Corner: String, CaseIterable, Identifiable {
-        case automatic, bottomLeft, bottomRight, topLeft, topRight
+        case bottomRight, bottomLeft, topRight, topLeft
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .automatic: L("Nearest the pointer")
             case .bottomLeft: L("Bottom left")
             case .bottomRight: L("Bottom right")
             case .topLeft: L("Top left")
             case .topRight: L("Top right")
             }
         }
+        var isTop: Bool { self == .topLeft || self == .topRight }
+        var isLeft: Bool { self == .topLeft || self == .bottomLeft }
+    }
+
+    /// Which display the island and previews use when it isn't obvious from the capture.
+    enum Placement: String, CaseIterable, Identifiable {
+        case builtIn, active
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .builtIn: L("Built-in display")
+            case .active: L("The display you’re using")
+            }
+        }
+    }
+
+    /// How long previews stay, in seconds, in the steps the slider stops at. The last means
+    /// until dismissed.
+    static let previewDurations: [Double] = [2, 3, 5, 8, 10, 15, 20, 30, 45, 60, 0]
+
+    static func durationTitle(_ seconds: Double) -> String {
+        if seconds <= 0 { return L("Until dismissed") }
+        if seconds >= 60 { return L("1 minute") }
+        return String(format: L("%d seconds"), Int(seconds))
     }
 
     enum Hints: String, CaseIterable, Identifiable {
@@ -157,6 +184,8 @@ final class Settings: ObservableObject {
         }
     }
     @Published var playsSound: Bool { didSet { store(playsSound, Key.playsSound) } }
+    /// A brief white flash over what was captured.
+    @Published var showsFlash: Bool { didSet { store(showsFlash, Key.showsFlash) } }
     @Published var allowsLinks: Bool { didSet { store(allowsLinks, Key.allowsLinks) } }
 
     @Published var showsMagnifier: Bool { didSet { store(showsMagnifier, Key.showsMagnifier) } }
@@ -194,13 +223,17 @@ final class Settings: ObservableObject {
         didSet {
             store(pinTarget.rawValue, Key.pinTarget)
             if pinTarget == .menuBar && !showsMenuBarIcon {
-            showsMenuBarIcon = true
-            store(true, Key.showsMenuBarIcon)
-        }
+                showsMenuBarIcon = true
+                store(true, Key.showsMenuBarIcon)
+            }
         }
     }
     /// ⌘X cuts files in Finder and ⌘V moves them.
     @Published var cutsInFinder: Bool { didSet { store(cutsInFinder, Key.cutsInFinder) } }
+    /// Which display the island rests on: the Mac's own, or whichever you're working on.
+    @Published var islandPlacement: Placement { didSet { store(islandPlacement.rawValue, Key.islandPlacement) } }
+    /// Pins wait beside the notch as a badge. Off, the notch stays bare until it's needed.
+    @Published var showsPinBadge: Bool { didSet { store(showsPinBadge, Key.showsPinBadge) } }
 
     /// The backdrop window captures get, or nil to keep them on transparency.
     var windowBackdrop: Backdrop.Style? {
@@ -212,7 +245,7 @@ final class Settings: ObservableObject {
     }
 
     private static let registered: [String: Any] = [
-        Key.previewDuration: 6.0,
+        Key.previewDuration: 8.0,
         Key.showsMenuBarIcon: true,
         Key.playsSound: false,
         Key.allowsLinks: true,
@@ -226,18 +259,22 @@ final class Settings: ObservableObject {
         Key.ocrLanguageCorrection: true,
         Key.recognizesShapes: true,
         Key.pinsDraggedFiles: true,
+        Key.showsPinBadge: true,
+        Key.showsFlash: true,
     ]
 
     private init() {
         defaults.register(defaults: Self.registered)
         afterCapture = AfterCapture(rawValue: defaults.string(forKey: Key.afterCapture) ?? "") ?? .preview
-        previewCorner = Corner(rawValue: defaults.string(forKey: Key.previewCorner) ?? "") ?? .automatic
+        // "Nearest the pointer" is gone: it moved previews about and slowed every capture down.
+        previewCorner = Corner(rawValue: defaults.string(forKey: Key.previewCorner) ?? "") ?? .bottomRight
         previewDuration = defaults.double(forKey: Key.previewDuration)
         copyAtPointSize = defaults.bool(forKey: Key.copyAtPointSize)
         savesEveryCapture = defaults.bool(forKey: Key.savesEveryCapture)
 
         showsMenuBarIcon = defaults.bool(forKey: Key.showsMenuBarIcon)
         playsSound = defaults.bool(forKey: Key.playsSound)
+        showsFlash = defaults.bool(forKey: Key.showsFlash)
         allowsLinks = defaults.bool(forKey: Key.allowsLinks)
         showsMagnifier = defaults.bool(forKey: Key.showsMagnifier)
         snapsToEdges = defaults.bool(forKey: Key.snapsToEdges)
@@ -261,6 +298,8 @@ final class Settings: ObservableObject {
         pinsDraggedFiles = defaults.bool(forKey: Key.pinsDraggedFiles)
         pinTarget = PinTarget(rawValue: defaults.string(forKey: Key.pinTarget) ?? "") ?? .notch
         cutsInFinder = defaults.bool(forKey: Key.cutsInFinder)
+        islandPlacement = Placement(rawValue: defaults.string(forKey: Key.islandPlacement) ?? "") ?? .builtIn
+        showsPinBadge = defaults.bool(forKey: Key.showsPinBadge)
 
         var loaded: [HotAction: Shortcut] = [:]
         if let data = defaults.data(forKey: Key.shortcuts),
@@ -287,13 +326,14 @@ final class Settings: ObservableObject {
     /// Puts every preference back to how it ships. The save folder and the welcome guide are kept.
     func resetToDefaults() {
         afterCapture = .preview
-        previewCorner = .automatic
-        previewDuration = 6
+        previewCorner = .bottomRight
+        previewDuration = 8
         copyAtPointSize = false
         savesEveryCapture = false
         shortcuts = Dictionary(uniqueKeysWithValues: HotAction.allCases.map { ($0, $0.defaultShortcut) })
         showsMenuBarIcon = true
         playsSound = false
+        showsFlash = true
         allowsLinks = true
         showsMagnifier = true
         snapsToEdges = true
@@ -315,6 +355,8 @@ final class Settings: ObservableObject {
         pinsDraggedFiles = true
         pinTarget = .notch
         cutsInFinder = false
+        islandPlacement = .builtIn
+        showsPinBadge = true
     }
 
     // MARK: Save folder

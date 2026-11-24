@@ -53,6 +53,11 @@ final class NotchDropModel {
 
     var isHardware: Bool { geometry?.isHardware ?? true }
     var isMenuBar: Bool { geometry?.isMenuBar ?? false }
+    /// The Dynamic Island on a screen without a notch.
+    var isFloating: Bool { geometry?.isFloating ?? false }
+    /// The space at the top of an open island: the notch's height, kept clear of the camera, or
+    /// a thin margin on the floating island, which has no camera to clear.
+    var band: CGFloat { isFloating ? 6 : notchSize.height }
     var notchSize: CGSize { geometry?.size ?? CGSize(width: 190, height: 32) }
 
     var isPanel: Bool {
@@ -102,10 +107,10 @@ final class NotchDropModel {
         case .armed, .badge: body = CGSize(width: notch.width + Self.earWidth * 2, height: notch.height)
         case .tray:
             let tray = PinTray.contentSize
-            body = CGSize(width: max(tray.width + 8, notch.width + 150), height: notch.height + tray.height + 6)
-        case .near: body = CGSize(width: max(360, notch.width + 150), height: notch.height + 84)
-        case .targeted: body = CGSize(width: max(388, notch.width + 178), height: notch.height + 96)
-        case .pinned, .alreadyPinned, .failed: body = CGSize(width: max(340, notch.width + 130), height: notch.height + 60)
+            body = CGSize(width: max(tray.width + 8, notch.width + 150), height: band + tray.height + 6)
+        case .near: body = CGSize(width: max(360, notch.width + 150), height: band + 84)
+        case .targeted: body = CGSize(width: max(388, notch.width + 178), height: band + 96)
+        case .pinned, .alreadyPinned, .failed: body = CGSize(width: max(340, notch.width + 130), height: band + (isFloating ? 66 : 60))
         }
         return CGSize(width: body.width + shoulderRadius(for: phase) * 2, height: body.height)
     }
@@ -132,7 +137,9 @@ final class NotchDropModel {
     }
 
     func shoulderRadius(for phase: Phase) -> CGFloat {
-        switch phase {
+        // Floating free of the screen's edge, there's no menu bar to pour out of.
+        if isFloating { return 0 }
+        return switch phase {
         case .hidden, .armed, .badge: 6
         default: Self.shoulder
         }
@@ -170,9 +177,6 @@ final class NotchDrop {
     private let catcher: NSPanel
     private var monitors: [Any] = []
 
-    /// The drag pasteboard's count when the mouse went down; a new count means a drag began.
-    private var changeCountAtMouseDown = 0
-    private var isWatchingForDrag = false
     private var poll: Timer?
     private var releaseTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
@@ -184,7 +188,6 @@ final class NotchDrop {
     private var isWaitingForCompanion = false
 
     private var observers: [Any] = []
-    private var pointerMonitors: [Any] = []
     private var hoverTask: Task<Void, Never>?
     private var leaveTask: Task<Void, Never>?
     /// The tray was clicked open, or clicked into: it stays until Esc or a click elsewhere.
@@ -211,12 +214,14 @@ final class NotchDrop {
     func start() {
         guard monitors.isEmpty else { return }
         NotchApps.listen()
-        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp], handler: { [weak self] event in
-            MainActor.assumeIsolated { self?.handleGlobal(event) }
+        // Mouse-downs only: a drag is spotted by looking at the drag pasteboard a few times while
+        // the button stays down, never by hearing every one of a drag's 120 events a second.
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.mouseWentDown() }
         }) {
             monitors.append(monitor)
         }
-        installPointerMonitors()
+        installKeyMonitor()
 
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: PinStore.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -224,9 +229,22 @@ final class NotchDrop {
         })
         for name in [NotchApps.companionDidChange, NSApplication.didChangeScreenParametersNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshRest() }
+                MainActor.assumeIsolated {
+                    self?.followActiveDisplay()
+                    self?.refreshRest()
+                }
             })
         }
+        subscriptions.append(Settings.shared.$islandPlacement.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.followActiveDisplay()
+                self?.refreshRest()
+            }
+        })
+        subscriptions.append(Settings.shared.$showsPinBadge.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshRest() }
+        })
+        followActiveDisplay()
         subscriptions.append(Settings.shared.$pinTarget.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.closeTray()
@@ -260,7 +278,9 @@ final class NotchDrop {
     /// The notch rests as a badge when there are pins, the bare notch when there aren't. With
     /// Clove running, the badge steps aside while Clove's own island is open.
     private var restPhase: NotchDropModel.Phase {
-        guard model.total > 0 else { return .hidden }
+        // The floating island never rests in view: in the middle of the menu bar it would sit
+        // over app menus. It shows only while there's a drag, a moment, or the tray.
+        guard model.total > 0, Settings.shared.showsPinBadge, !model.isFloating else { return .hidden }
         guard NotchApps.companionIsRunning else { return .badge }
         return NotchApps.companionIsOpen || NotchApps.companionShowsEars ? .hidden : .badge
     }
@@ -280,9 +300,14 @@ final class NotchDrop {
     /// the notch, its ears, and a sliver below so reaching for it needs no pixel-perfect aim.
     /// With Clove the notch is Clove's, so only the ears, and only while they're showing.
     private func restingHotRects(_ geometry: NotchGeometry) -> [CGRect] {
+        // The floating island, out of sight, mustn't catch clicks meant for the menu bar.
+        if geometry.isFloating && model.phase == .hidden { return [] }
         let band = model.notchSize.height + 4
         let island = geometry.hangingRect(CGSize(width: model.size(for: .badge).width, height: band))
-        guard NotchApps.companionIsRunning else { return [island] }
+        // Without ears showing, only the notch itself: the menu bar beside it stays the menu bar's.
+        guard NotchApps.companionIsRunning else {
+            return [model.phase == .badge ? island : geometry.hangingRect(CGSize(width: model.notchSize.width, height: band))]
+        }
         if model.showsSideBubble { return [sideBubbleRect(geometry).insetBy(dx: -4, dy: -4)] }
         guard model.phase == .badge else { return [] }
         let ear = NotchDropModel.earWidth + model.shoulderRadius(for: .badge)
@@ -309,14 +334,49 @@ final class NotchDrop {
         } else {
             window.orderFrontRegardless()
         }
-        updatePointer(NSEvent.mouseLocation)
+        updateZones()
     }
 
     private func place(_ geometry: NotchGeometry) {
         guard model.geometry != geometry || !window.isVisible else { return }
         model.geometry = geometry
         window.setFrame(geometry.windowFrame, display: true)
-        window.appearance = geometry.isHardware ? NSAppearance(named: .darkAqua) : nil
+        window.appearance = geometry.isMenuBar ? nil : NSAppearance(named: .darkAqua)
+    }
+
+    // MARK: Following the display you're using
+
+    private var activeObservers: [Any] = []
+    private var activeTimer: Timer?
+
+    /// With the island on the display you're using, it moves when you switch apps or windows to
+    /// another one. Only while it rests: an open island never jumps out from under the pointer.
+    private func followActiveDisplay() {
+        activeObservers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        activeObservers = []
+        activeTimer?.invalidate()
+        activeTimer = nil
+        guard Settings.shared.islandPlacement == .active, NSScreen.screens.count > 1 else { return }
+        activeObservers = [
+            NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.moveToActiveDisplay() }
+            },
+            NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.moveToActiveDisplay() }
+            },
+        ]
+        // Other apps' windows moving between displays don't notify; look now and then.
+        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.moveToActiveDisplay() }
+        }
+        timer.tolerance = 0.5
+        RunLoop.main.add(timer, forMode: .common)
+        activeTimer = timer
+    }
+
+    private func moveToActiveDisplay() {
+        guard !isBusy, let geometry = NotchGeometry.resting(), geometry != model.geometry else { return }
+        refreshRest()
     }
 
     // MARK: The tray
@@ -332,7 +392,9 @@ final class NotchDrop {
         leaveTask?.cancel()
         collapseTask?.cancel()
         if model.phase != .tray {
-            guard let geometry = NotchGeometry.resting() else { return }
+            // A notch stays put; without one, the tray opens on the display you're pointing at.
+            guard let resting = NotchGeometry.resting() else { return }
+            let geometry = resting.isFloating ? (NotchGeometry.underPointer() ?? resting) : resting
             place(geometry)
             // Clove folds on the claim, so the tray opens out of a bare notch.
             if NotchApps.companionIsRunning { NotchApps.claim() }
@@ -347,13 +409,15 @@ final class NotchDrop {
             window.allowsKey = true
             window.makeKey()
         }
-        updatePointer(NSEvent.mouseLocation)
+        hideZones()
+        watchPointerForTray()
+        followTrayPointer(NSEvent.mouseLocation)
     }
 
     func closeTray() {
         guard model.phase == .tray else { return }
         hoverTask?.cancel()
-        leaveTask?.cancel()
+        stopWatchingPointer()
         isTrayFocused = false
         if window.isKeyWindow { window.resignKey() }
         window.allowsKey = false
@@ -372,20 +436,9 @@ final class NotchDrop {
 
     // MARK: Pointer
 
-    private func installPointerMonitors() {
-        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown, .rightMouseDown]
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: { [weak self] event in
-            MainActor.assumeIsolated { self?.handlePointer(event, isLocal: false) }
-        }) {
-            pointerMonitors.append(global)
-        }
-        if let local = NSEvent.addLocalMonitorForEvents(matching: events, handler: { [weak self] event in
-            MainActor.assumeIsolated { self?.handlePointer(event, isLocal: true) }
-            return event
-        }) {
-            pointerMonitors.append(local)
-        }
-        // Esc closes the tray while it holds the keyboard.
+    /// Esc closes the tray while it holds the keyboard. A local monitor: it hears only keys
+    /// already headed for Shotput.
+    private func installKeyMonitor() {
         if let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
             guard event.keyCode == 53, let self else { return event }
             return MainActor.assumeIsolated {
@@ -394,15 +447,89 @@ final class NotchDrop {
                 return nil
             }
         }) {
-            pointerMonitors.append(keys)
+            monitors.append(keys)
         }
+    }
+
+    /// At rest the island answers the pointer through small invisible windows over its hot
+    /// spots. The window server tracks the pointer over them for free, so Shotput hears nothing
+    /// until the pointer is actually there: no wake-up for every mouse move on the Mac.
+    private var zones: [HotZone] = []
+
+    private func updateZones() {
+        guard let geometry = model.geometry, window.isVisible, model.isResting, !isBusy else { return hideZones() }
+        let rects = restingHotRects(geometry)
+        while zones.count < rects.count {
+            let zone = HotZone(level: NSWindow.Level(rawValue: window.level.rawValue + 1))
+            zone.onEnter = { [weak self] in self?.zoneEntered() }
+            zone.onExit = { [weak self] in
+                self?.hoverTask?.cancel()
+                self?.hoverTask = nil
+            }
+            zone.onClick = { [weak self] in self?.openTray(focused: true) }
+            zones.append(zone)
+        }
+        for (index, zone) in zones.enumerated() {
+            if index < rects.count {
+                zone.setFrame(rects[index], display: false)
+                zone.orderFrontRegardless()
+            } else {
+                zone.orderOut(nil)
+            }
+        }
+    }
+
+    private func hideZones() {
+        hoverTask?.cancel()
+        hoverTask = nil
+        zones.forEach { $0.orderOut(nil) }
+    }
+
+    /// Hovering the badge, or the bubble beside Clove's ears, peeks at the tray. The bare notch
+    /// only opens on a click.
+    private func zoneEntered() {
+        guard model.phase == .badge || (model.phase == .hidden && model.showsSideBubble),
+              NSEvent.pressedMouseButtons == 0, hoverTask == nil else { return }
+        hoverTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(160))
+            guard let self, !Task.isCancelled else { return }
+            self.hoverTask = nil
+            if self.model.isResting, self.zones.contains(where: { $0.isVisible && $0.frame.contains(NSEvent.mouseLocation) }) {
+                self.openTray(focused: false)
+            }
+        }
+    }
+
+    /// While the tray is open, and only then, Shotput follows the pointer everywhere: to close a
+    /// peeked tray as the pointer leaves, and any tray on a click elsewhere.
+    private var trayMonitors: [Any] = []
+
+    private func watchPointerForTray() {
+        guard trayMonitors.isEmpty else { return }
+        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown, .rightMouseDown]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: { [weak self] event in
+            MainActor.assumeIsolated { self?.handlePointer(event, isLocal: false) }
+        }) {
+            trayMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: events, handler: { [weak self] event in
+            MainActor.assumeIsolated { self?.handlePointer(event, isLocal: true) }
+            return event
+        }) {
+            trayMonitors.append(local)
+        }
+    }
+
+    private func stopWatchingPointer() {
+        trayMonitors.forEach(NSEvent.removeMonitor)
+        trayMonitors = []
+        leaveTask?.cancel()
+        leaveTask = nil
+        setIgnoresPointer(true)
     }
 
     /// What `ignoresMouseEvents` was last set to, so the window server only hears about changes.
     private var isIgnoringPointer = true
-    /// When the drag pasteboard was last asked whether a drag carries anything.
-    private var lastDragCheck: TimeInterval = 0
-    private var dragWatchStarted: TimeInterval = 0
 
     private func setIgnoresPointer(_ ignores: Bool) {
         guard ignores != isIgnoringPointer else { return }
@@ -411,7 +538,8 @@ final class NotchDrop {
     }
 
     private func handlePointer(_ event: NSEvent, isLocal: Bool) {
-        if event.type == .leftMouseDown || event.type == .rightMouseDown, model.phase == .tray {
+        guard model.phase == .tray else { return stopWatchingPointer() }
+        if event.type == .leftMouseDown || event.type == .rightMouseDown {
             if isLocal && event.window === window {
                 // A click into a peeked tray keeps it open.
                 if !isTrayFocused {
@@ -422,90 +550,65 @@ final class NotchDrop {
             } else {
                 // Anywhere else: another app, the menu bar, Shotput's own windows.
                 closeTray()
-            }
-        }
-        updatePointer(NSEvent.mouseLocation)
-    }
-
-    /// Clicks fall through everywhere but the island, and only reach it where it's resting or
-    /// open. Hovering the badge peeks at the tray; leaving a peeked tray closes it.
-    private func updatePointer(_ location: CGPoint) {
-        guard let geometry = model.geometry, window.isVisible else { return }
-        guard model.isResting || model.phase == .tray else {
-            setIgnoresPointer(true)
-            return
-        }
-        // Most moves are nowhere near the notch: with nothing pending, there's nothing to do.
-        let isFar = location.y < geometry.screenFrame.maxY - NotchGeometry.canvas.height
-            || abs(location.x - geometry.midX) > NotchGeometry.canvas.width / 2
-        if isFar, isIgnoringPointer, hoverTask == nil, model.phase != .tray { return }
-        let island = geometry.hangingRect(model.size)
-        let over: Bool
-        if model.phase == .tray {
-            over = island.insetBy(dx: -2, dy: -2).contains(location)
-        } else {
-            over = restingHotRects(geometry).contains { $0.contains(location) }
-        }
-        setIgnoresPointer(!over)
-
-        switch model.phase {
-        case .badge where over && NSEvent.pressedMouseButtons == 0, .hidden where over && model.showsSideBubble && NSEvent.pressedMouseButtons == 0:
-            guard hoverTask == nil else { return }
-            hoverTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(160))
-                guard let self, !Task.isCancelled else { return }
-                self.hoverTask = nil
-                let location = NSEvent.mouseLocation
-                if self.model.isResting, self.restingHotRects(geometry).contains(where: { $0.contains(location) }) {
-                    self.openTray(focused: false)
-                }
-            }
-        case .tray where !isTrayFocused:
-            // A little slack round the edge, so a pointer that drifts off for a moment doesn't snap it shut.
-            if island.insetBy(dx: -14, dy: -14).contains(location) {
-                leaveTask?.cancel()
-                leaveTask = nil
-            } else if leaveTask == nil {
-                leaveTask = Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(220))
-                    guard let self, !Task.isCancelled else { return }
-                    self.leaveTask = nil
-                    if !self.isTrayFocused { self.closeTray() }
-                }
-            }
-        default:
-            hoverTask?.cancel()
-            hoverTask = nil
-        }
-    }
-
-    private func handleGlobal(_ event: NSEvent) {
-        switch event.type {
-        case .leftMouseDown:
-            guard Settings.shared.pinsDraggedFiles else { return }
-            changeCountAtMouseDown = NSPasteboard(name: .drag).changeCount
-            isWatchingForDrag = true
-            dragWatchStarted = event.timestamp
-            lastDragCheck = 0
-        case .leftMouseDragged:
-            guard isWatchingForDrag else { return }
-            // A drag that hasn't written the drag pasteboard within a second is moving a window
-            // or selecting text, not carrying anything. And asking the pasteboard is a round trip
-            // to another process, so not on every one of the 120 events a second.
-            if event.timestamp - dragWatchStarted > 1 {
-                isWatchingForDrag = false
                 return
             }
-            guard event.timestamp - lastDragCheck >= 0.05 else { return }
-            lastDragCheck = event.timestamp
-            let pasteboard = NSPasteboard(name: .drag)
-            // The dragging app writes the pasteboard a moment into the drag, so keep looking.
-            guard pasteboard.changeCount != changeCountAtMouseDown else { return }
-            isWatchingForDrag = false
-            if let payload = Self.payload(from: pasteboard) { arm(payload) }
-        default:
-            isWatchingForDrag = false
         }
+        followTrayPointer(NSEvent.mouseLocation)
+    }
+
+    /// Clicks reach the open tray and fall through everywhere else. A peeked tray closes once
+    /// the pointer has left it.
+    private func followTrayPointer(_ location: CGPoint) {
+        guard let geometry = model.geometry, model.phase == .tray else { return }
+        let island = geometry.hangingRect(model.size)
+        setIgnoresPointer(!island.insetBy(dx: -2, dy: -2).contains(location))
+        guard !isTrayFocused else { return }
+        // A little slack round the edge, so a pointer that drifts off for a moment doesn't snap it shut.
+        if island.insetBy(dx: -14, dy: -14).contains(location) {
+            leaveTask?.cancel()
+            leaveTask = nil
+        } else if leaveTask == nil {
+            leaveTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(220))
+                guard let self, !Task.isCancelled else { return }
+                self.leaveTask = nil
+                if !self.isTrayFocused { self.closeTray() }
+            }
+        }
+    }
+
+    // MARK: Spotting drags in other apps
+
+    private var dragCheck: Timer?
+
+    /// Something may be about to be dragged. While the button stays down, glance at the drag
+    /// pasteboard every tenth of a second for up to a second: a drag that hasn't written it by
+    /// then is moving a window or selecting text, not carrying anything.
+    private func mouseWentDown() {
+        dragCheck?.invalidate()
+        dragCheck = nil
+        guard Settings.shared.pinsDraggedFiles, poll == nil else { return }
+        let baseline = NSPasteboard(name: .drag).changeCount
+        let started = Date()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { return timer.invalidate() }
+                guard NSEvent.pressedMouseButtons & 1 != 0, Date().timeIntervalSince(started) < 1.1 else {
+                    timer.invalidate()
+                    self.dragCheck = nil
+                    return
+                }
+                let pasteboard = NSPasteboard(name: .drag)
+                // The dragging app writes the pasteboard a moment into the drag, so keep looking.
+                guard pasteboard.changeCount != baseline else { return }
+                timer.invalidate()
+                self.dragCheck = nil
+                if let payload = Self.payload(from: pasteboard) { self.arm(payload) }
+            }
+        }
+        timer.tolerance = 0.02
+        RunLoop.main.add(timer, forMode: .common)
+        dragCheck = timer
     }
 
     // MARK: Shotput's own drags
@@ -542,8 +645,8 @@ final class NotchDrop {
             model.trayView = nil
             model.phase = restPhase
         }
-        hoverTask?.cancel()
-        setIgnoresPointer(true)
+        hideZones()
+        stopWatchingPointer()
         model.showsSideBubble = false
 
         model.payload = payload
@@ -552,7 +655,7 @@ final class NotchDrop {
             model.phase = model.isResting && model.geometry == geometry ? model.phase : .hidden
             model.geometry = geometry
             window.setFrame(geometry.windowFrame, display: true)
-            window.appearance = geometry.isHardware ? NSAppearance(named: .darkAqua) : nil
+            window.appearance = geometry.isMenuBar ? nil : NSAppearance(named: .darkAqua)
         }
         // The well's own size, flush with the top, plus a little slack below it.
         let well = geometry.hangingRect(model.size(for: .targeted))
@@ -638,9 +741,11 @@ final class NotchDrop {
             if delay > .zero { try? await Task.sleep(for: delay) }
             guard let self, !Task.isCancelled else { return }
             self.catcher.orderOut(nil)
-            // Back to rest: the badge if there are pins, else the bare notch.
+            // Back to rest: the badge if there are pins, else the bare notch. When rest is on
+            // another display, fade out here first, so the badge never shows on the wrong one.
             self.model.total = PinStore.shared.pins.count
-            self.model.phase = self.restPhase
+            let isHome = NotchGeometry.resting() == self.model.geometry
+            self.model.phase = isHome ? self.restPhase : .hidden
             try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled, self.model.isResting else { return }
             self.model.payload = DragPayload()
@@ -860,5 +965,50 @@ private final class DropTargetView: NSView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let pasteboard = sender.draggingPasteboard
         return MainActor.assumeIsolated { drop?.drop(pasteboard) ?? false }
+    }
+}
+
+/// An invisible window over one of the resting island's hot spots. It hears the pointer arrive,
+/// leave and click there, and nothing anywhere else.
+private final class HotZone: NSPanel {
+    var onEnter: () -> Void = {}
+    var onExit: () -> Void = {}
+    var onClick: () -> Void = {}
+
+    init(level: NSWindow.Level) {
+        super.init(contentRect: CGRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        self.level = level
+        isOpaque = false
+        // Fully clear windows let the pointer through. This one is clear to the eye only.
+        backgroundColor = NSColor.black.withAlphaComponent(0.001)
+        hasShadow = false
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        animationBehavior = .none
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        let view = ZoneView()
+        view.zone = self
+        contentView = view
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(L("Show pins"))
+    }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    private final class ZoneView: NSView {
+        weak var zone: HotZone?
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseEntered(with event: NSEvent) { zone?.onEnter() }
+        override func mouseExited(with event: NSEvent) { zone?.onExit() }
+        override func mouseDown(with event: NSEvent) { zone?.onClick() }
     }
 }

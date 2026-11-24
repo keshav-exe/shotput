@@ -41,27 +41,25 @@ final class CaptureCoordinator {
         Task {
             defer { if startedAt == token { startedAt = nil } }
             do {
-                // Shotput's own windows in the still need the window list as it is now.
-                let content = Settings.shared.capturesOwnWindows
-                    ? try await ScreenCapturer.shareableContent()
-                    : try await ScreenCapturer.displayContent()
-                guard startedAt == token else { return }
                 if mode == .screen {
-                    guard let shot = try await ScreenCapturer.captureDisplays(
-                        content, only: NSScreen.underMouse, showsCursor: Settings.shared.showsPointer
-                    ).first else { return }
+                    guard let shot = try await ScreenCapturer.stills(
+                        only: NSScreen.underMouse, showsCursor: Settings.shared.showsPointer
+                    ).first, startedAt == token else { return }
                     let capture = Capture(image: shot.image, scale: shot.scale, screen: shot.screen)
                     capture.appName = previousApp?.localizedName
                     deliver(capture, annotate: annotate)
                     return
                 }
 
-                let shots = try await ScreenCapturer.captureDisplays(content)
+                let shots = try await ScreenCapturer.stills()
                 guard !shots.isEmpty, startedAt == token, overlay == nil else { return }
                 let overlay = SelectionOverlay(mode: mode == .window ? .window : .area)
                 self.overlay = overlay
-                // A window capture needs today's window list; fetch it while the pointer moves.
-                let windowContent = Task { try await ScreenCapturer.shareableContent() }
+                // A window capture needs today's window list: fetched while the pointer moves when
+                // picking a window, and only if a click asks for one when selecting an area.
+                let windowContent: Task<SCShareableContent, Error>? = mode == .window
+                    ? Task { try await ScreenCapturer.shareableContent() }
+                    : nil
                 overlay.present(shots: shots, windows: ScreenCapturer.onScreenWindows()) { outcome in
                     self.overlay = nil
                     self.overlayClosedAt = Date()
@@ -74,13 +72,13 @@ final class CaptureCoordinator {
     }
 
     private func finish(
-        _ outcome: SelectionOverlay.Outcome, content: Task<SCShareableContent, Error>, annotate: Bool, readText: Bool,
+        _ outcome: SelectionOverlay.Outcome, content: Task<SCShareableContent, Error>?, annotate: Bool, readText: Bool,
         previousApp: NSRunningApplication?
     ) {
         // Hand focus back, so a paste lands where the user was working. The editor keeps it instead.
         let opensEditor = !readText && (annotate || Settings.shared.afterCapture == .editor)
         if case .cancelled = outcome {
-            content.cancel()
+            content?.cancel()
             previousApp?.activate()
             return
         }
@@ -91,7 +89,7 @@ final class CaptureCoordinator {
         case .cancelled:
             break
         case let .area(rect, shot):
-            content.cancel()
+            content?.cancel()
             guard let image = shot.crop(rect) else { return }
             let origin = shot.screen.frame.origin
             lastArea = rect.offsetBy(dx: origin.x, dy: origin.y)
@@ -107,7 +105,8 @@ final class CaptureCoordinator {
                 // Prefer the window on its own. Fall back to the still if it has gone away.
                 let capture: Capture
                 let settings = Settings.shared
-                if let content = try? await content.value,
+                let fresh: SCShareableContent? = if let content { try? await content.value } else { try? await ScreenCapturer.shareableContent() }
+                if let content = fresh,
                    let result = try? await ScreenCapturer.captureWindow(info.id, in: content, includesShadow: settings.windowShadow) {
                     if let style = settings.windowBackdrop {
                         let wallpaper = style.fill == .wallpaper ? await Backdrop.wallpaper(for: shot.screen) : nil
@@ -147,6 +146,7 @@ final class CaptureCoordinator {
     }
 
     private func deliver(_ capture: Capture, annotate: Bool) {
+        retire(lastCapture)
         lastCapture = capture
         let settings = Settings.shared
         let after = annotate ? Settings.AfterCapture.editor : settings.afterCapture
@@ -163,7 +163,6 @@ final class CaptureCoordinator {
             DispatchQueue.main.async {
                 Output.copyToClipboard(png.data)
                 if let file { Output.save(file, relativeTo: nil) { _ in } }
-                capture.compact()
             }
         }
 
@@ -179,19 +178,27 @@ final class CaptureCoordinator {
     /// A screenshot macOS took and saved itself. It already made its sound and flash, and its
     /// file is the saved copy, so this only fills the clipboard and shows what comes next.
     func adoptMacScreenshot(_ capture: Capture) {
+        retire(lastCapture)
         lastCapture = capture
         NotificationCenter.default.post(name: .shotputDidCapture, object: nil)
         DispatchQueue.global(qos: .userInitiated).async {
             guard let png = capture.png() else { return }
-            DispatchQueue.main.async {
-                Output.copyToClipboard(png.data)
-                capture.compact()
-            }
+            DispatchQueue.main.async { Output.copyToClipboard(png.data) }
         }
         switch Settings.shared.afterCapture {
         case .preview: PreviewPanelController.shared.show(capture)
         case .editor: EditorManager.shared.open(capture)
         case .clipboard: break
+        }
+    }
+
+    /// The newest capture keeps its raw pixels, so annotating or floating it is instant. Once
+    /// another arrives it trades them for its PNG; opening it again decodes it then.
+    private func retire(_ capture: Capture?) {
+        guard let capture else { return }
+        DispatchQueue.global(qos: .utility).async {
+            _ = capture.png()
+            DispatchQueue.main.async { capture.compact() }
         }
     }
 
@@ -211,8 +218,7 @@ final class CaptureCoordinator {
         Task {
             defer { if startedAt == token { startedAt = nil } }
             do {
-                let content = try await ScreenCapturer.displayContent()
-                guard let shot = try await ScreenCapturer.captureDisplays(content, only: screen).first else { return }
+                guard let shot = try await ScreenCapturer.stills(only: screen).first else { return }
                 let local = area.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY)
                     .intersection(CGRect(origin: .zero, size: screen.frame.size))
                 guard !local.isEmpty, let image = shot.crop(local) else { return }

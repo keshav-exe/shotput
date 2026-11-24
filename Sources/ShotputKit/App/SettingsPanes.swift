@@ -550,7 +550,9 @@ struct PinsPane: View {
                         SettingsPicker(title: L("Show on"), subtitle: L("Displays without a notch get a Dynamic Island in the menu bar"), symbol: "display.2", tint: Palette.Vivid.blue,
                                        options: Settings.Placement.allCases, label: \.title, selection: $settings.islandPlacement)
                     }
+                    if NotchGeometry.hasHardwareNotch {
                     SettingsToggle(title: L("Show pins beside the notch"), subtitle: L("Shotput’s icon and how many are waiting. Off, the notch stays bare until a drag."), symbol: "pin.fill", tint: Palette.Vivid.red, isOn: $settings.showsPinBadge)
+                    }
                 }
             }
 

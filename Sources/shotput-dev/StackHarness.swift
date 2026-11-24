@@ -78,6 +78,26 @@ func stackHarness(to path: String) {
     PreviewPanelController.shared.dismissAll()
     RunLoop.main.run(until: Date().addingTimeInterval(0.4))
 
+    // A capture traded for its PNG still has every pixel it had.
+    let raw = bitmap(width: 300, height: 200) { ctx in
+        ctx.setFillColor(rgb(0x30A46C))
+        ctx.fill(CGRect(x: 0, y: 0, width: 300, height: 200))
+        ctx.setFillColor(rgb(0xE5484D))
+        ctx.fill(CGRect(x: 40, y: 50, width: 60, height: 30))
+    }
+    let kept = Capture(image: raw, scale: 2)
+    _ = kept.png()
+    kept.compact()
+    func pixels(_ image: CGImage) -> [UInt8] {
+        var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let ctx = CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return data
+    }
+    let same = kept.image !== raw && pixels(kept.image) == pixels(raw)
+    print("  \(same ? "ok  " : "FAIL") a compacted capture keeps its pixels")
+
     // Every corner, with a stack and with one small capture alone.
     let savedCorner = settings.previewCorner
     defer { settings.previewCorner = savedCorner }

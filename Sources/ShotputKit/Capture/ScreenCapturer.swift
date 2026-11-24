@@ -64,9 +64,26 @@ enum ScreenCapturer {
         return try await shareableContent()
     }
 
+    /// Stills of the displays, from cached content when it serves. If ScreenCaptureKit turns the
+    /// cached content down (a display slept, or changed), it asks again once before giving up,
+    /// so a stale cache never reads as missing permission.
+    static func stills(only: NSScreen? = nil, showsCursor: Bool = false) async throws -> [DisplayShot] {
+        // Shotput's own windows in the still need the window list as it is now.
+        if Settings.shared.capturesOwnWindows {
+            return try await captureDisplays(try await shareableContent(), only: only, showsCursor: showsCursor)
+        }
+        do {
+            return try await captureDisplays(try await displayContent(), only: only, showsCursor: showsCursor)
+        } catch {
+            cached = nil
+            return try await captureDisplays(try await shareableContent(), only: only, showsCursor: showsCursor)
+        }
+    }
+
     /// Fetches fresh content off the critical path, so the next capture starts at once.
     static func warmUp() {
         guard refreshing == nil, CGPreflightScreenCaptureAccess() else { return }
+        if let cached, Date().timeIntervalSince(cached.date) < 10 { return }
         observeScreensIfNeeded()
         refreshing = Task {
             defer { refreshing = nil }

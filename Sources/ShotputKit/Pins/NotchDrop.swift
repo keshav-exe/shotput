@@ -324,6 +324,7 @@ final class NotchDrop {
             model.showsSideBubble = false
             model.phase = .hidden
             window.orderOut(nil)
+            hideZones()
             return
         }
         place(geometry)
@@ -547,6 +548,9 @@ final class NotchDrop {
                     window.allowsKey = true
                     window.makeKey()
                 }
+            } else if MenuBarAnchor.frame()?.contains(NSEvent.mouseLocation) == true {
+                // Shotput's own menu bar icon: its click toggles the tray, so leave it to that,
+                // or the tray would close here and open again on the same click.
             } else {
                 // Anywhere else: another app, the menu bar, Shotput's own windows.
                 closeTray()

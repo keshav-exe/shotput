@@ -264,7 +264,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     func windowWillClose(_ notification: Notification) {
-        if notification.object as? NSWindow === settingsController?.window { AppPresence.shared.windowDidClose() }
+        guard notification.object as? NSWindow === settingsController?.window else { return }
+        AppPresence.shared.windowDidClose()
+        // Settings holds every pane's views; let them go once it's closed, and build them
+        // afresh next time. Afterwards, so the window finishes closing first.
+        DispatchQueue.main.async { [weak self] in
+            if self?.settingsController?.window?.isVisible == false { self?.settingsController = nil }
+        }
     }
 }
 
